@@ -3,10 +3,12 @@ import sys
 import threading
 from flask import Flask
 import telebot
-from google import genai
+from openai import OpenAI
 from deep_translator import GoogleTranslator
 
-# 1. تشغيل خادم Flask لمنع إيقاف الخدمة في Render
+# -------------------------------------------------------------
+# 1. خادم Flask لإرضاء فحص المنافذ على Render
+# -------------------------------------------------------------
 app = Flask(__name__)
 
 @app.route('/')
@@ -19,62 +21,57 @@ def run_flask():
 
 threading.Thread(target=run_flask, daemon=True).start()
 
-# 2. إعدادات النظام والمفاتيح
+# -------------------------------------------------------------
+# 2. إعداد الترميز والمتغيرات
+# -------------------------------------------------------------
 os.environ["PYTHONIOENCODING"] = "utf-8"
 if sys.stdout.encoding != 'utf-8':
     sys.reconfigure(encoding='utf-8')
 
-# جلب المفاتيح من متغيرات البيئة
-BOT_TOKEN = os.environ.get("BOT_TOKEN", "").strip()
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
-
-# طباعة للتأكد من وجود المفاتيح عند الإقلاع
-if not BOT_TOKEN:
-    print("❌ تحذير: متغير BOT_TOKEN غير موجود في Environment Variables!")
-if not GEMINI_API_KEY:
-    print("❌ تحذير: متغير GEMINI_API_KEY غير موجود في Environment Variables!")
+BOT_TOKEN = os.environ.get("BOT_TOKEN", "8936315525:AAGxsT-QEHTb6LI0W1lQC2h4W5fuJ_xs1zQ").strip()
+CRATE_API_KEY = os.environ.get("CRATE_API_KEY", "cc_boyfYE1gwLJ8GMdWfxvd7cX1mbfqNRZ18b2J87rvTcvcsZ6U").strip()
 
 bot = telebot.TeleBot(BOT_TOKEN)
-ai_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+
+# عميل CrateCraft
+crate_client = OpenAI(
+    api_key=CRATE_API_KEY,
+    base_url="https://api.cratecraft.com/v1"
+)
 
 ALLOWED_USERS = ["iyedbd"]
 TARGET_THREAD_ID = None
 
-def translate_with_gemini(text):
-    if not ai_client:
-        raise ValueError("GEMINI_API_KEY مفقود أو غير مضبوط في Render")
-
-    prompt = f"""You are an expert context-aware translator.
-Translate the following Arabic text into natural, accurate English.
-Handle context, Arabic slang, and gaming terms naturally without literal translation.
-Return ONLY the English translation without quotes or explanations.
-
-Text:
-{text}"""
-
-    # تجربة النماذج المتاحة
-    for model_name in ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash']:
-        try:
-            response = ai_client.models.generate_content(
-                model=model_name,
-                contents=prompt
-            )
-            if response and response.text:
-                return response.text.strip()
-        except Exception as e:
-            print(f"فشل النموذج {model_name}: {e}")
-            continue
-
-    raise RuntimeError("فشلت جميع نماذج Gemini المتاحة.")
+# -------------------------------------------------------------
+# 3. دوال الترجمة
+# -------------------------------------------------------------
+def translate_with_cratecraft(text):
+    response = crate_client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[
+            {
+                "role": "system",
+                "content": (
+                    "You are an expert context-aware translator. "
+                    "Translate the following Arabic text into accurate, natural English. "
+                    "Correctly handle gaming slang, idioms, and context. "
+                    "Return ONLY the translation without quotes, notes, or introductions."
+                )
+            },
+            {"role": "user", "content": text}
+        ],
+        temperature=0.3
+    )
+    return response.choices[0].message.content.strip()
 
 def translate_message(text):
-    # المحاولة الأولى: Gemini
+    # 1. المحاولة الأساسية عبر CrateCraft
     try:
-        return translate_with_gemini(text)
-    except Exception as gemini_err:
-        print(f"❌ عطل في Gemini: {gemini_err}")
+        return translate_with_cratecraft(text)
+    except Exception as crate_err:
+        print(f"❌ عطل في CrateCraft: {crate_err} -> الانتقال للبديل...")
 
-    # المحاولة الثانية: مترجم الطوارئ
+    # 2. المحاولة الاحتياطية
     try:
         return GoogleTranslator(source='ar', target='en').translate(text)
     except Exception as fallback_err:
@@ -86,8 +83,14 @@ def is_authorized(message):
         return False
     return message.from_user.username.lower() in [u.lower() for u in ALLOWED_USERS]
 
+# -------------------------------------------------------------
+# 4. معالجة الرسائل
+# -------------------------------------------------------------
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
+    sender = message.from_user.username if message.from_user else None
+    print(f"رسالة من: @{sender} | المحتوى: {message.text}")
+
     if not is_authorized(message):
         return
 
@@ -98,11 +101,13 @@ def handle_message(message):
         translated = translate_message(message.text)
         if translated:
             bot.reply_to(message, translated)
-            print(f"✅ تمت الترجمة بنجاح: {translated}")
-    except Exception as err:
-        print(f"فشلت الترجمة بالكامل: {err}")
+            print(f"✅ تم الرد بالترجمة: {translated}")
+    except Exception:
         bot.reply_to(message, "تعذر الترجمة حالياً، حاول مجدداً بعد لحظات.")
 
+# -------------------------------------------------------------
+# 5. تشغيل البوت
+# -------------------------------------------------------------
 if __name__ == "__main__":
-    print("البوت يعمل الآن...")
+    print("البوت يعمل الآن بنظام CrateCraft...")
     bot.infinity_polling(skip_pending=True)
