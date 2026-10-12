@@ -1,10 +1,31 @@
 import os
 import sys
+import threading
+from flask import Flask
 import telebot
 from google import genai
 from deep_translator import GoogleTranslator
 
-# فرض تشفير UTF-8 لبيئة بايثون بالكامل
+# -------------------------------------------------------------
+# 1. إعداد خادم Flask لإرضاء فحص المنافذ (Web Service) في Render
+# -------------------------------------------------------------
+app = Flask(__name__)
+
+@app.route('/')
+def health_check():
+    return "Bot is alive and running!"
+
+def run_flask():
+    # Render يمرر رقم المنفذ في متغير PORT تلقائياً
+    port = int(os.environ.get("PORT", 8080))
+    app.run(host="0.0.0.0", port=port)
+
+# تشغيل خادم الويب في خلفية متوازية
+threading.Thread(target=run_flask, daemon=True).start()
+
+# -------------------------------------------------------------
+# 2. إعداد التشفير والاتصال بالبوت والذكاء الاصطناعي
+# -------------------------------------------------------------
 os.environ["PYTHONIOENCODING"] = "utf-8"
 if sys.stdout.encoding != 'utf-8':
     sys.reconfigure(encoding='utf-8')
@@ -15,6 +36,7 @@ GEMINI_API_KEY = "AQ.Ab8RN6IxXhkwE9UpRqaswF0XGgRsJazVfTeZR4_o6Gwx3qswKw"
 bot = telebot.TeleBot(BOT_TOKEN)
 ai_client = genai.Client(api_key=GEMINI_API_KEY)
 
+# اليوزرات المسموح لها بالترجمة
 ALLOWED_USERS = ["iyedbd"]
 TARGET_THREAD_ID = None
 
@@ -34,12 +56,13 @@ Text:
     return response.text.strip()
 
 def translate_message(text):
+    # المحاولة الأولى باستخدام Gemini
     try:
         return translate_with_gemini(text)
     except Exception as gemini_err:
         print(f"عطل في Gemini: {gemini_err} -> جاري استخدام المترجم البديل...")
 
-    # بديل طوارئ
+    # في حال حدوث أي عطل في Gemini، التبديل التلقائي للمترجم الاحتياطي
     try:
         return GoogleTranslator(source='ar', target='en').translate(text)
     except Exception as fallback_err:
@@ -51,6 +74,9 @@ def is_authorized(message):
         return False
     return message.from_user.username.lower() in [u.lower() for u in ALLOWED_USERS]
 
+# -------------------------------------------------------------
+# 3. معالجة رسائل تيليجرام
+# -------------------------------------------------------------
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
     if not is_authorized(message):
@@ -66,5 +92,9 @@ def handle_message(message):
     except Exception:
         bot.reply_to(message, "تعذر الترجمة حالياً، حاول مجدداً بعد لحظات.")
 
-print("البوت يعمل الآن مع نموذج gemini-3.8-flash بنجاح...")
-bot.infinity_polling(skip_pending=True)
+# -------------------------------------------------------------
+# 4. تشغيل البوت
+# -------------------------------------------------------------
+if __name__ == "__main__":
+    print("البوت يعمل الآن مع خادم الويب ونموذج Gemini بنجاح...")
+    bot.infinity_polling(skip_pending=True)
