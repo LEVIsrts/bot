@@ -71,7 +71,7 @@ def translate_message(text):
     except Exception as crate_err:
         print(f"❌ عطل في CrateCraft: {crate_err} -> الانتقال للبديل...")
 
-    # 2. المحاولة الاحتياطية
+    # 2. المحاولة الاحتياطية (Google Translate)
     try:
         return GoogleTranslator(source='ar', target='en').translate(text)
     except Exception as fallback_err:
