@@ -1,4 +1,4 @@
-pyTelegramBotAPI
-openai
-deep-translator
-flask
+python-telegram-bot[job-queue]==21.6
+APScheduler==3.10.4
+pdfplumber==0.11.0
+python-dotenv==1.0.1
