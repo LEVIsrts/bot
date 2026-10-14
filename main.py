@@ -72,9 +72,37 @@ logger = logging.getLogger(__name__)
 #  Callbacks دورة حياة التطبيق
 # ══════════════════════════════════════════════════════════════
 
+async def start_dummy_health_check_server() -> None:
+    """تشغيل خادم فحص حياة مصغر (Health Check) لبيئات مثل Render Web Service لتفادي إغلاق السيرفر."""
+    port_str = os.getenv("PORT")
+    if not port_str:
+        return
+    try:
+        port = int(port_str)
+        async def handle_ping(reader, writer):
+            try:
+                await reader.read(1024)
+                response = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK"
+                writer.write(response)
+                await writer.drain()
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+        server = await asyncio.start_server(handle_ping, "0.0.0.0", port)
+        asyncio.create_task(server.serve_forever())
+        logger.info(f"🌐 تم تشغيل خادم الفحص الحي (Render Health Check) على المنفذ: {port}")
+    except Exception as e:
+        logger.warning(f"تعذر تشغيل خادم الفحص الحي: {e}")
+
+
 async def on_startup(application: Application) -> None:
     """تشغيل عمليات الإعداد عند بدء البوت."""
     logger.info("🚀 بدء تشغيل البوت...")
+
+    # تشغيل خادم الفحص الحي إذا كان البوت على Render Web Service
+    await start_dummy_health_check_server()
 
     # تهيئة قاعدة البيانات
     init_db()
@@ -163,6 +191,14 @@ def main() -> None:
     if not BOT_TOKEN or BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
         logger.error("❌ لم يتم تحديد BOT_TOKEN. أضفه في ملف .env")
         sys.exit(1)
+
+    import asyncio
+    # توافقية بايثون 3.12 و 3.14+ (إنشاء event loop في الـ MainThread)
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
 
     # إلغاء أي متغيرات بروكسي تالفة في النظام للاتصال المباشر
     for var in ("http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "all_proxy", "ALL_PROXY"):
