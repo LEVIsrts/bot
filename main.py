@@ -1,7 +1,18 @@
 import logging
 import sys
 import os
+
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+
 import socket
+import asyncio
+import threading
+import http.server
 
 # حل مشكلة All connection attempts failed بإعطاء الأولوية لـ IPv4
 if os.getenv("DISABLE_IPV6_FIX", "0") != "1":
@@ -40,6 +51,11 @@ from handlers import (
     cmd_add_admin,
     cmd_remove_admin,
     cmd_seed,
+    cmd_set_translate_topic,
+    cmd_set_translate_mode,
+    cmd_set_translate_user,
+    cmd_set_translate_target,
+    cmd_bot_settings,
     handle_pdf,
     handle_callback,
     handle_text,
@@ -69,40 +85,58 @@ logger = logging.getLogger(__name__)
 
 
 # ══════════════════════════════════════════════════════════════
-#  Callbacks دورة حياة التطبيق
+#  خادم الفحص الحي (Render Health Check)
 # ══════════════════════════════════════════════════════════════
 
-async def start_dummy_health_check_server() -> None:
-    """تشغيل خادم فحص حياة مصغر (Health Check) لبيئات مثل Render Web Service لتفادي إغلاق السيرفر."""
-    port_str = os.getenv("PORT")
-    if not port_str:
-        return
+class HealthCheckHandler(http.server.BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", "2")
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", "2")
+        self.end_headers()
+
+    def log_message(self, format, *args):
+        # منع إغراق سجلات اللوج بطلبات الفحص المتكررة
+        pass
+
+
+def start_health_server_thread() -> None:
+    """
+    تشغيل خادم HTTP فوري في ثريد مستقل للاستجابة لفحص المنافذ في Render Web Service
+    وتجنب انتهاء المهلة (Port scan timeout / Timed Out).
+    """
+    port_str = os.getenv("PORT", "10000")
     try:
         port = int(port_str)
-        async def handle_ping(reader, writer):
-            try:
-                await reader.read(1024)
-                response = b"HTTP/1.1 200 OK\r\nContent-Type: text/plain\r\nContent-Length: 2\r\nConnection: close\r\n\r\nOK"
-                writer.write(response)
-                await writer.drain()
-                writer.close()
-                await writer.wait_closed()
-            except Exception:
-                pass
+    except ValueError:
+        port = 10000
 
-        server = await asyncio.start_server(handle_ping, "0.0.0.0", port)
-        asyncio.create_task(server.serve_forever())
-        logger.info(f"🌐 تم تشغيل خادم الفحص الحي (Render Health Check) على المنفذ: {port}")
-    except Exception as e:
-        logger.warning(f"تعذر تشغيل خادم الفحص الحي: {e}")
+    def run_server():
+        try:
+            server = http.server.HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+            logger.info(f"🌐 [Render Health Check] خادم الفحص الحي يعمل الآن بنجاح على 0.0.0.0:{port}")
+            server.serve_forever()
+        except Exception as e:
+            logger.warning(f"⚠️ تعذر تشغيل خادم الفحص الحي على المنفذ {port}: {e}")
 
+    thread = threading.Thread(target=run_server, daemon=True)
+    thread.start()
+
+
+# ══════════════════════════════════════════════════════════════
+#  Callbacks دورة حياة التطبيق
+# ══════════════════════════════════════════════════════════════
 
 async def on_startup(application: Application) -> None:
     """تشغيل عمليات الإعداد عند بدء البوت."""
     logger.info("🚀 بدء تشغيل البوت...")
-
-    # تشغيل خادم الفحص الحي إذا كان البوت على Render Web Service
-    await start_dummy_health_check_server()
 
     # تهيئة قاعدة البيانات
     init_db()
@@ -153,7 +187,12 @@ def register_handlers(app: Application) -> None:
 
     # ── أوامر المشرفين ───────────────────────────────────────────
     app.add_handler(CommandHandler("panel",          cmd_panel))
+    app.add_handler(CommandHandler("settings",       cmd_bot_settings))
     app.add_handler(CommandHandler("settopic",       cmd_set_topic))
+    app.add_handler(CommandHandler("translatetopic", cmd_set_translate_topic))
+    app.add_handler(CommandHandler("translatemode",  cmd_set_translate_mode))
+    app.add_handler(CommandHandler("setuser",        cmd_set_translate_user))
+    app.add_handler(CommandHandler("settarget",      cmd_set_translate_target))
     app.add_handler(CommandHandler("testalert",      cmd_test_alert))
     app.add_handler(CommandHandler("pause",          cmd_pause_alerts))
     app.add_handler(CommandHandler("resume",         cmd_resume_alerts))
@@ -188,6 +227,9 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
 # ══════════════════════════════════════════════════════════════
 
 def main() -> None:
+    # تشغيل خادم الفحص الحي فوراً في الخلفية لتجاوز فحص المنفذ في Render
+    start_health_server_thread()
+
     if not BOT_TOKEN or BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
         logger.error("❌ لم يتم تحديد BOT_TOKEN. أضفه في ملف .env")
         sys.exit(1)

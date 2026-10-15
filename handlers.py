@@ -27,6 +27,21 @@ from pdf_parser import parse_schedule_pdf
 logger = logging.getLogger(__name__)
 
 
+def translate_ar_to_en(text: str) -> str:
+    """ترجمة النص من العربية إلى الإنجليزية البريطانية مع تفادي الأعطال."""
+    if not text or not text.strip():
+        return ""
+    try:
+        from deep_translator import MyMemoryTranslator
+        translator = MyMemoryTranslator(source="ar-SA", target="en-GB")
+        res = translator.translate(text.strip())
+        if res:
+            return res.strip()
+    except Exception as e:
+        logger.warning(f"⚠️ [Translator Engine] فشل الترجمة: {e}")
+    return text.strip()
+
+
 # ══════════════════════════════════════════════════════════════
 #  التحقق من صلاحيات المشرف
 # ══════════════════════════════════════════════════════════════
@@ -495,16 +510,25 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 # ══════════════════════════════════════════════════════════════
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    user_data = context.user_data
-    text = update.message.text.strip()
+    if not update.effective_message or not update.effective_message.text:
+        return
 
-    # تعديل الوقت
+    msg = update.effective_message
+    user = update.effective_user
+    chat = update.effective_chat
+    user_data = context.user_data
+    text = msg.text.strip()
+
+    # تسجيل المستخدم في قاعدة البيانات لتحديث الاسم والمعرّف تلقائياً
+    if user and not user.is_bot:
+        db.upsert_member(user.id, user.username, user.full_name or user.first_name)
+
+    # ── 1. تعديل الوقت ───────────────────────────────────────────
     if "edit_time_session" in user_data:
         session_id = user_data.pop("edit_time_session")
         parts = [p.strip() for p in text.replace("–", "-").replace("—", "-").split("-")]
         if len(parts) == 2:
             start_time, end_time = parts[0], parts[1]
-            # تحقق من الصيغة
             import re
             if re.match(r"^\d{2}:\d{2}$", start_time) and re.match(r"^\d{2}:\d{2}$", end_time):
                 db.update_session_time(session_id, start_time, end_time)
@@ -522,8 +546,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             "❌ صيغة غير صحيحة. أرسل بالشكل: <code>09:00 - 10:30</code>",
             parse_mode=ParseMode.HTML,
         )
+        return
 
-    # تعديل اسم المادة
+    # ── 2. تعديل اسم المادة ───────────────────────────────────────
     elif "edit_subject_session" in user_data:
         session_id = user_data.pop("edit_subject_session")
         with db.get_conn() as conn:
@@ -536,6 +561,72 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             parse_mode=ParseMode.HTML,
             reply_markup=admin_main_menu(),
         )
+        return
+
+    # ── 3. ميزة الترجمة التلقائية والمنشن داخل مواضيع المجموعة ───
+    translate_enabled = db.get_setting("translate_enabled", "1")
+    if translate_enabled == "1" and chat and chat.type in ("group", "supergroup"):
+        # فحص مطابقة الموضوع (Topic) المحدد من قِبل المشرف
+        configured_topic = db.get_setting("translate_topic_id", "3")
+        current_thread_id = msg.message_thread_id
+
+        # إذا حُدد موضوع معين (وليس 0 للكل) ولم تتطابق الرسالة معه، نتجاهلها
+        if configured_topic and configured_topic != "0":
+            try:
+                target_thread_id = int(configured_topic)
+            except ValueError:
+                target_thread_id = 3
+            if current_thread_id != target_thread_id:
+                return
+
+        # التحقق من صلاحية المستخدم المحفز (iyedbd أو المشرفين)
+        auth_user = db.get_setting("translate_auth_username", "iyedbd").lower().strip("@")
+        auth_id_str = db.get_setting("translate_auth_user_id", "8760969567")
+        auth_id = int(auth_id_str) if auth_id_str and auth_id_str.isdigit() else None
+
+        sender_username = (user.username or "").lower().strip("@") if user else ""
+        sender_id = user.id if user else 0
+
+        is_authorized = (
+            sender_username == auth_user
+            or (auth_id and sender_id == auth_id)
+            or is_admin(sender_id)
+        )
+
+        if not is_authorized:
+            return
+
+        # التحقق من احتواء النص على حروف عربية
+        import re
+        if not re.search(r"[\u0600-\u06FF]", text):
+            return
+
+        # ترجمة النص إلى الإنجليزية
+        translated = translate_ar_to_en(text)
+
+        # البحث عن العضو المستهدف لمنشنه تلقائياً
+        target_kws_str = db.get_setting("translate_target_keywords", "sofine,traore")
+        keywords = tuple(k.strip().lower() for k in target_kws_str.split(",") if k.strip())
+        target = db.find_target_member(keywords)
+
+        if target:
+            tag_link = f"[{target['name']}](tg://user?id={target['id']})"
+            reply_text = f"🇬🇧 {translated}\n\n👉 {tag_link}"
+        else:
+            reply_text = (
+                f"🇬🇧 {translated}\n\n"
+                f"🔔 _Notification for Sofine / TRAORE (Will be directly tagged upon their next message)_"
+            )
+
+        try:
+            await msg.reply_text(
+                reply_text,
+                parse_mode=ParseMode.MARKDOWN,
+                disable_web_page_preview=True,
+            )
+            logger.info(f"✅ تم تنفيذ الترجمة والمنشن في Topic #{current_thread_id} للمستخدم {user.id}")
+        except Exception as e:
+            logger.error(f"❌ خطأ أثناء إرسال رد الترجمة: {e}")
 
 
 # ══════════════════════════════════════════════════════════════
@@ -831,5 +922,149 @@ async def cmd_seed(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("✅ تم بنجاح إعادة تعبئة الجدول الدراسي (20 حصة) وإعادة جدولة كافة التنبيهات!")
     except Exception as e:
         await update.message.reply_text(f"❌ حدث خطأ أثناء التعبئة: {e}")
+
+
+# ══════════════════════════════════════════════════════════════
+#  أوامر التحكم ببارامترات الترجمة والمواضيع للمشرفين
+# ══════════════════════════════════════════════════════════════
+
+async def cmd_set_translate_topic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """تحديد رقم الموضوع (Topic ID) الذي ستعمل فيه الترجمة التلقائية."""
+    if not await _check_admin(update):
+        return
+
+    msg = update.effective_message
+    if context.args:
+        try:
+            thread_id = int(context.args[0])
+        except ValueError:
+            await msg.reply_text("❌ يرجى إدخال رقم موضوع صحيح، أو إدخال 0 للعمل في كل المواضيع.")
+            return
+    elif msg.message_thread_id:
+        thread_id = msg.message_thread_id
+    else:
+        await msg.reply_text(
+            "📌 <b>تحديد موضوع الترجمة:</b>\n"
+            "أرسل الأمر متبوعاً برقم الموضوع، مثلاً:\n"
+            "<code>/translatetopic 3</code>\n\n"
+            "أو اكتب <code>/translatetopic 0</code> لتفعيل الترجمة في كل المواضيع،\n"
+            "أو أرسل الأمر <code>/translatetopic</code> مباشرة داخل الموضوع المراد.",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    db.set_setting("translate_topic_id", str(thread_id))
+    topic_desc = f"الموضوع رقم <b>{thread_id}</b>" if thread_id != 0 else "<b>كافة المواضيع (General & Topics)</b>"
+    await msg.reply_text(
+        f"✅ <b>تم ضبط موضوع الترجمة بنجاح!</b>\n"
+        f"ستعمل الترجمة الحرفية والمنشن التلقائي حصراً في: {topic_desc}",
+        parse_mode=ParseMode.HTML,
+    )
+
+
+async def cmd_set_translate_mode(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """تشغيل أو إيقاف ميزة الترجمة التلقائية."""
+    if not await _check_admin(update):
+        return
+    msg = update.effective_message
+    if not context.args:
+        current = "مفعّلة 🟢" if db.get_setting("translate_enabled", "1") == "1" else "معطّلة ⏸️"
+        await msg.reply_text(
+            f"حالة الترجمة الحالية: <b>{current}</b>\n\n"
+            f"للتبديل أرسل:\n"
+            f"<code>/translatemode on</code> للتشغيل\n"
+            f"<code>/translatemode off</code> للإيقاف",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    arg = context.args[0].lower().strip()
+    if arg in ("on", "1", "تشغيل", "enable"):
+        db.set_setting("translate_enabled", "1")
+        await msg.reply_text("🟢 تم <b>تفعيل</b> ميزة الترجمة والمنشن التلقائي.", parse_mode=ParseMode.HTML)
+    elif arg in ("off", "0", "ايقاف", "إيقاف", "disable"):
+        db.set_setting("translate_enabled", "0")
+        await msg.reply_text("⏸️ تم <b>إيقاف</b> ميزة الترجمة التلقائية مؤقتاً.", parse_mode=ParseMode.HTML)
+    else:
+        await msg.reply_text("❌ اكتب on أو off.")
+
+
+async def cmd_set_translate_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """تحديد المستخدم المسموح له بتحفيز الترجمة."""
+    if not await _check_admin(update):
+        return
+    msg = update.effective_message
+    if not context.args:
+        current_u = db.get_setting("translate_auth_username", "iyedbd")
+        await msg.reply_text(
+            f"المستخدم المصرح له الحالي: <b>@{current_u}</b>\n\n"
+            f"لتغييره أرسل: <code>/setuser username</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    new_user = context.args[0].strip().lstrip("@")
+    db.set_setting("translate_auth_username", new_user)
+    await msg.reply_text(f"✅ تم تعيين المستخدم المصرح له بالترجمة: <b>@{new_user}</b>", parse_mode=ParseMode.HTML)
+
+
+async def cmd_set_translate_target(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """تحديد الكلمات المفتاحية للشخص المستهدف بالمنشن."""
+    if not await _check_admin(update):
+        return
+    msg = update.effective_message
+    if not context.args:
+        current_t = db.get_setting("translate_target_keywords", "sofine,traore")
+        await msg.reply_text(
+            f"الكلمات الحالية المستهدفة للمنشن: <code>{current_t}</code>\n\n"
+            f"لتغييرها أرسل: <code>/settarget name1, name2</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    new_targets = " ".join(context.args).strip()
+    db.set_setting("translate_target_keywords", new_targets)
+    await msg.reply_text(f"✅ تم ضبط الأسماء المستهدفة للمنشن: <code>{new_targets}</code>", parse_mode=ParseMode.HTML)
+
+
+async def cmd_bot_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """عرض لوحة التحكم في كافة بارامترات البوت والمواضيع والترجمة."""
+    if not await _check_admin(update):
+        return
+
+    group_id = db.get_setting("group_chat_id", "-1004315124879")
+    schedule_topic = db.get_setting("topic_id", "4")
+    schedule_status = "مفعّلة 🟢" if db.get_setting("alerts_enabled", "1") == "1" else "معطلة ⏸️"
+
+    trans_topic = db.get_setting("translate_topic_id", "3")
+    trans_status = "مفعّلة 🟢" if db.get_setting("translate_enabled", "1") == "1" else "معطلة ⏸️"
+    trans_user = db.get_setting("translate_auth_username", "iyedbd")
+    trans_targets = db.get_setting("translate_target_keywords", "sofine,traore")
+
+    members_count = len(db.get_all_members())
+
+    text = (
+        "⚙️ <b>لوحة إعدادات وبارامترات البوت (Admin Settings)</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        "📅 <b>تنبيهات الجدول الدراسي:</b>\n"
+        f"• المجموعة: <code>{group_id}</code>\n"
+        f"• موضوع التنبيهات (Topic): <code>{schedule_topic}</code>\n"
+        f"• حالة التنبيهات: <b>{schedule_status}</b>\n"
+        "  └ تغيير الموضوع: <code>/settopic [id]</code> | <code>/pause</code> | <code>/resume</code>\n\n"
+        "🌐 <b>الترجمة الحرفية والمنشن التلقائي:</b>\n"
+        f"• موضوع الترجمة (Topic): <code>{trans_topic}</code>\n"
+        f"• حالة الترجمة: <b>{trans_status}</b>\n"
+        f"• المستخدم المحفز: <b>@{trans_user}</b>\n"
+        f"• المستهدف بالمنشن: <code>{trans_targets}</code>\n"
+        f"• الأعضاء المحفوظين: <b>{members_count} عضو</b>\n\n"
+        "🛠 <b>أوامر سريعة للتحكم:</b>\n"
+        "• <code>/translatetopic [id]</code> : تحديد موضوع الترجمة\n"
+        "• <code>/translatemode on|off</code> : تفعيل/تعطيل الترجمة\n"
+        "• <code>/setuser [username]</code> : تغيير المستخدم المترجم له\n"
+        "• <code>/settarget [names]</code> : تغيير اسم الشخص لمنشنه\n"
+        "• <code>/settings</code> : إعادة عرض هذه اللوحة\n"
+    )
+    await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML)
+
 
 

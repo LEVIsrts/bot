@@ -206,6 +206,21 @@ def remove_member(user_id: int) -> None:
         conn.execute("DELETE FROM members WHERE user_id=?", (user_id,))
 
 
+def find_target_member(keywords: tuple[str, ...] = ("sofine", "traore")) -> Optional[dict]:
+    """البحث في سجل الأعضاء عن عضو يحمل الاسم المطلوب لمنشنه تلقائياً."""
+    with get_conn() as conn:
+        rows = conn.execute("SELECT user_id, username, full_name FROM members").fetchall()
+        for r in rows:
+            haystack = f"{r['full_name'] or ''} {r['username'] or ''}".lower()
+            for kw in keywords:
+                if kw.lower() in haystack:
+                    return {
+                        "id": r["user_id"],
+                        "name": r["full_name"] or r["username"] or "Member",
+                    }
+    return None
+
+
 # ══════════════════════════════════════════════════════════════
 #  دوال المشرفين (Admins)
 # ══════════════════════════════════════════════════════════════
