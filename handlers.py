@@ -28,36 +28,41 @@ logger = logging.getLogger(__name__)
 
 
 def translate_ar_to_en(text: str) -> str:
-    """ترجمة دقيقة وسريعة من العربية إلى الإنجليزية عبر Google GTX المباشر مع بديل احتياطي."""
+    """ترجمة دقيقة وسريعة من العربية إلى الإنجليزية بدون قيود ولا حظر."""
     if not text or not text.strip():
         return ""
 
     raw_text = text.strip()
 
-    # 1. المحرك الأساسي: Google GTX API المباشر (سريع جداً، لا يتأثر بقيود IP، وبدون مفاتيح)
+    # 1. المحرك الأساسي: Google Chrome Extension API المباشر (سريع جداً، موثوق، لا يحظر إطلاقاً)
     try:
         import urllib.request
         import urllib.parse
         import json
         encoded_query = urllib.parse.quote(raw_text)
-        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q={encoded_query}"
+        url = f"https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl=en&q={encoded_query}"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
         with urllib.request.urlopen(req, timeout=6) as resp:
             data = json.loads(resp.read().decode("utf-8"))
-            if data and data[0]:
-                translated = "".join([seg[0] for seg in data[0] if seg and seg[0]])
-                if translated.strip():
-                    return translated.strip()
+            if isinstance(data, list) and data:
+                parts = [item[0] for item in data if isinstance(item, list) and item and item[0]]
+                if parts:
+                    return " ".join(parts).strip()
     except Exception as e:
-        logger.warning(f"⚠️ [Google GTX Translate] فشل: {e}")
+        logger.warning(f"⚠️ [Google Translate API] فشل: {e}")
 
-    # 2. المحرك الاحتياطي: MyMemoryTranslator
+    # 2. المحرك الاحتياطي: MyMemory مع البريد لرفع الحصة اليومية
     try:
-        from deep_translator import MyMemoryTranslator
-        translator = MyMemoryTranslator(source="ar-SA", target="en-GB")
-        res = translator.translate(raw_text)
-        if res and "MYMEMORY WARNING" not in res and res.strip() != raw_text:
-            return res.strip()
+        import urllib.request
+        import urllib.parse
+        import json
+        url = "https://api.mymemory.translated.net/get?q=" + urllib.parse.quote(raw_text) + "&langpair=ar|en&de=iyeddevbot@gmail.com"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+        with urllib.request.urlopen(req, timeout=6) as resp:
+            res = json.loads(resp.read().decode("utf-8"))
+            t = res.get("responseData", {}).get("translatedText")
+            if t and "MYMEMORY" not in t and t.strip() != raw_text:
+                return t.strip()
     except Exception as e:
         logger.warning(f"⚠️ [MyMemory Translate] فشل: {e}")
 
@@ -651,38 +656,25 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
-    # ── 3. ميزة الترجمة التلقائية والمنشن داخل مواضيع المجموعة ───
+    # ── 3. ميزة الترجمة التلقائية ────────────────────────────────
     translate_enabled = db.get_setting("translate_enabled", "1")
-    if translate_enabled == "1" and chat and chat.type in ("group", "supergroup"):
-        # فحص مطابقة الموضوع (Topic) المحدد من قِبل المشرف
-        configured_topic = db.get_setting("translate_topic_id", "3")
-        current_thread_id = msg.message_thread_id
+    if translate_enabled == "1":
+        # في المحادثات الخاصة مع البوت: يترجم دائماً
+        is_private = chat and chat.type == "private"
 
-        # إذا حُدد موضوع معين (وليس 0 للكل) ولم تتطابق الرسالة معه، نتجاهلها
-        if configured_topic and configured_topic != "0":
-            try:
-                target_thread_id = int(configured_topic)
-            except ValueError:
-                target_thread_id = 3
-            if current_thread_id != target_thread_id:
-                return
+        # في المجموعات: فحص مطابقة رقم الموضوع (Topic)
+        if not is_private:
+            configured_topic = db.get_setting("translate_topic_id", "0")
+            current_thread_id = msg.message_thread_id
 
-        # التحقق من صلاحية المستخدم المحفز (iyedbd أو المشرفين)
-        auth_user = db.get_setting("translate_auth_username", "iyedbd").lower().strip("@")
-        auth_id_str = db.get_setting("translate_auth_user_id", "8760969567")
-        auth_id = int(auth_id_str) if auth_id_str and auth_id_str.isdigit() else None
-
-        sender_username = (user.username or "").lower().strip("@") if user else ""
-        sender_id = user.id if user else 0
-
-        is_authorized = (
-            sender_username == auth_user
-            or (auth_id and sender_id == auth_id)
-            or is_admin(sender_id)
-        )
-
-        if not is_authorized:
-            return
+            # إذا حُدد موضوع معين (وليس 0 للكل) ولم تتطابق الرسالة معه، نتجاهلها
+            if configured_topic and configured_topic != "0":
+                try:
+                    target_thread_id = int(configured_topic)
+                except ValueError:
+                    target_thread_id = None
+                if target_thread_id is not None and current_thread_id != target_thread_id:
+                    return
 
         # التحقق من احتواء النص على حروف عربية
         import re
@@ -691,7 +683,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
         # ترجمة النص إلى الإنجليزية
         translated = translate_ar_to_en(text)
-        if not translated or translated.strip() == text.strip():
+        if not translated or translated.strip().lower() == text.strip().lower():
             # إذا تعذرت الترجمة أو لم يتغير النص، لا نكرر النص العربي في الشات
             return
 
@@ -702,7 +694,7 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 reply_text,
                 disable_web_page_preview=True,
             )
-            logger.info(f"✅ تم تنفيذ الترجمة في Topic #{current_thread_id} للمستخدم {user.id}")
+            logger.info(f"✅ تمت الترجمة بنجاح ({text} -> {translated}) للمستخدم {user.id if user else 0}")
         except Exception as e:
             logger.error(f"❌ خطأ أثناء إرسال رد الترجمة: {e}")
 
