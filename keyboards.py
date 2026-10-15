@@ -25,10 +25,10 @@ def admin_main_menu() -> InlineKeyboardMarkup:
 
 def settings_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 تشغيل / إيقاف الترجمة", callback_data="trans:toggle")],
-        [InlineKeyboardButton("📌 قفل الترجمة على هذا الموضوع", callback_data="trans:lockhere")],
-        [InlineKeyboardButton("🌐 تفعيل الترجمة في كل المواضيع", callback_data="trans:setall")],
-        [InlineKeyboardButton("🔙 رجوع للقائمة الرئيسية", callback_data="menu:back")],
+        [InlineKeyboardButton("🔄 تشغيل / إيقاف", callback_data="trans:toggle")],
+        [InlineKeyboardButton("📌 قفل على هذا التوبك", callback_data="trans:lockhere")],
+        [InlineKeyboardButton("🌐 تفعيل في كل التوبكات", callback_data="trans:setall")],
+        [InlineKeyboardButton("🔙 رجوع", callback_data="menu:back")],
     ])
 
 

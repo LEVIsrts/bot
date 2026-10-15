@@ -54,7 +54,6 @@ from handlers import (
     cmd_set_translate_topic,
     cmd_set_translate_mode,
     cmd_set_translate_user,
-    cmd_set_translate_target,
     cmd_bot_settings,
     handle_pdf,
     handle_callback,
@@ -192,7 +191,6 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("translatetopic", cmd_set_translate_topic))
     app.add_handler(CommandHandler("translatemode",  cmd_set_translate_mode))
     app.add_handler(CommandHandler("setuser",        cmd_set_translate_user))
-    app.add_handler(CommandHandler("settarget",      cmd_set_translate_target))
     app.add_handler(CommandHandler("testalert",      cmd_test_alert))
     app.add_handler(CommandHandler("pause",          cmd_pause_alerts))
     app.add_handler(CommandHandler("resume",         cmd_resume_alerts))
