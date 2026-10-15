@@ -352,6 +352,102 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     elif data == "menu:admins":
         await _handle_admins_menu(query, context)
 
+    elif data == "menu:settings":
+        from keyboards import settings_menu_keyboard
+        group_id = db.get_setting("group_chat_id", "-1004315124879")
+        schedule_topic = db.get_setting("topic_id", "4")
+        schedule_status = "مفعّلة 🟢" if db.get_setting("alerts_enabled", "1") == "1" else "معطلة ⏸️"
+
+        trans_topic = db.get_setting("translate_topic_id", "3")
+        trans_status = "مفعّلة 🟢" if db.get_setting("translate_enabled", "1") == "1" else "معطلة ⏸️"
+        trans_user = db.get_setting("translate_auth_username", "iyedbd")
+        trans_targets = db.get_setting("translate_target_keywords", "sofine,traore")
+        members_count = len(db.get_all_members())
+
+        text = (
+            "⚙️ <b>لوحة إعدادات الترجمة والمواضيع</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "🌐 <b>إعدادات الترجمة الحرفية:</b>\n"
+            f"• <b>موضوع الترجمة (Topic):</b> <code>{trans_topic}</code>\n"
+            f"• <b>حالة الترجمة:</b> <b>{trans_status}</b>\n"
+            f"• <b>المستخدم المحفز (Trigger):</b> <b>@{trans_user}</b>\n"
+            f"• <b>المستهدف بالمنشن:</b> <code>{trans_targets}</code>\n"
+            f"• <b>الأعضاء المسجلين:</b> <b>{members_count} عضو</b>\n\n"
+            "📅 <b>إعدادات التنبيهات الدراسية:</b>\n"
+            f"• <b>المجموعة:</b> <code>{group_id}</code>\n"
+            f"• <b>موضوع التنبيهات:</b> <code>{schedule_topic}</code>\n"
+            f"• <b>حالة التنبيهات:</b> <b>{schedule_status}</b>\n\n"
+            "💡 <i>يمكنك التحكم عبر الأزرار أدناه أو بالأوامر النصية.</i>"
+        )
+        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=settings_menu_keyboard())
+
+    elif data == "trans:toggle":
+        from keyboards import settings_menu_keyboard
+        curr = db.get_setting("translate_enabled", "1")
+        new_val = "0" if curr == "1" else "1"
+        db.set_setting("translate_enabled", new_val)
+        status_txt = "🟢 تم تفعيل الترجمة!" if new_val == "1" else "⏸️ تم إيقاف الترجمة مؤقتاً!"
+        await query.answer(status_txt, show_alert=False)
+
+        trans_topic = db.get_setting("translate_topic_id", "3")
+        trans_status = "مفعّلة 🟢" if new_val == "1" else "معطلة ⏸️"
+        trans_user = db.get_setting("translate_auth_username", "iyedbd")
+        trans_targets = db.get_setting("translate_target_keywords", "sofine,traore")
+        members_count = len(db.get_all_members())
+        text = (
+            "⚙️ <b>لوحة إعدادات الترجمة والمواضيع</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "🌐 <b>إعدادات الترجمة الحرفية:</b>\n"
+            f"• <b>موضوع الترجمة (Topic):</b> <code>{trans_topic}</code>\n"
+            f"• <b>حالة الترجمة:</b> <b>{trans_status}</b>\n"
+            f"• <b>المستخدم المحفز (Trigger):</b> <b>@{trans_user}</b>\n"
+            f"• <b>المستهدف بالمنشن:</b> <code>{trans_targets}</code>\n"
+            f"• <b>الأعضاء المسجلين:</b> <b>{members_count} عضو</b>\n"
+        )
+        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=settings_menu_keyboard())
+
+    elif data == "trans:lockhere":
+        from keyboards import settings_menu_keyboard
+        target_thread = query.message.message_thread_id
+        if target_thread:
+            db.set_setting("translate_topic_id", str(target_thread))
+            await query.answer(f"✅ تم قفل الترجمة على هذا الموضوع (#{target_thread})!", show_alert=True)
+        else:
+            db.set_setting("translate_topic_id", "0")
+            await query.answer("🌐 تم ضبط الترجمة في كل المواضيع (عام)", show_alert=True)
+        trans_topic = db.get_setting("translate_topic_id", "3")
+        trans_status = "مفعّلة 🟢" if db.get_setting("translate_enabled", "1") == "1" else "معطلة ⏸️"
+        trans_user = db.get_setting("translate_auth_username", "iyedbd")
+        trans_targets = db.get_setting("translate_target_keywords", "sofine,traore")
+        text = (
+            "⚙️ <b>لوحة إعدادات الترجمة والمواضيع</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "🌐 <b>إعدادات الترجمة الحرفية:</b>\n"
+            f"• <b>موضوع الترجمة (Topic):</b> <code>{trans_topic}</code>\n"
+            f"• <b>حالة الترجمة:</b> <b>{trans_status}</b>\n"
+            f"• <b>المستخدم المحفز (Trigger):</b> <b>@{trans_user}</b>\n"
+            f"• <b>المستهدف بالمنشن:</b> <code>{trans_targets}</code>\n"
+        )
+        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=settings_menu_keyboard())
+
+    elif data == "trans:setall":
+        from keyboards import settings_menu_keyboard
+        db.set_setting("translate_topic_id", "0")
+        await query.answer("🌐 تم تفعيل الترجمة في كل المواضيع!", show_alert=True)
+        trans_status = "مفعّلة 🟢" if db.get_setting("translate_enabled", "1") == "1" else "معطلة ⏸️"
+        trans_user = db.get_setting("translate_auth_username", "iyedbd")
+        trans_targets = db.get_setting("translate_target_keywords", "sofine,traore")
+        text = (
+            "⚙️ <b>لوحة إعدادات الترجمة والمواضيع</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━\n\n"
+            "🌐 <b>إعدادات الترجمة الحرفية:</b>\n"
+            f"• <b>موضوع الترجمة (Topic):</b> <code>0 (كافة المواضيع)</code>\n"
+            f"• <b>حالة الترجمة:</b> <b>{trans_status}</b>\n"
+            f"• <b>المستخدم المحفز (Trigger):</b> <b>@{trans_user}</b>\n"
+            f"• <b>المستهدف بالمنشن:</b> <code>{trans_targets}</code>\n"
+        )
+        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=settings_menu_keyboard())
+
     elif data == "menu:upload":
         await query.edit_message_text(
             "📤 أرسل ملف PDF الجدول الدراسي الآن.\n"

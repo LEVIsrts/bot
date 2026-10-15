@@ -18,7 +18,17 @@ def admin_main_menu() -> InlineKeyboardMarkup:
         [InlineKeyboardButton("♻️ استعادة حصة",        callback_data="menu:restore")],
         [InlineKeyboardButton("🗑️ حذف حصة نهائياً",   callback_data="menu:delete")],
         [InlineKeyboardButton("👤 إدارة المشرفين",     callback_data="menu:admins")],
+        [InlineKeyboardButton("⚙️ إعدادات الترجمة والمواضيع", callback_data="menu:settings")],
         [InlineKeyboardButton("📤 رفع PDF جديد",       callback_data="menu:upload")],
+    ])
+
+
+def settings_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 تشغيل / إيقاف الترجمة", callback_data="trans:toggle")],
+        [InlineKeyboardButton("📌 قفل الترجمة على هذا الموضوع", callback_data="trans:lockhere")],
+        [InlineKeyboardButton("🌐 تفعيل الترجمة في كل المواضيع", callback_data="trans:setall")],
+        [InlineKeyboardButton("🔙 رجوع للقائمة الرئيسية", callback_data="menu:back")],
     ])
 
 
