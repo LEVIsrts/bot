@@ -55,6 +55,13 @@ SCHEDULE_DATA = [
 
     # ── الاثنين (Monday) ──
     {
+        "subject": "Advanced Data base PW (Guezzouli Larbi)",
+        "day": "الاثنين",
+        "start_time": "08:30",
+        "end_time": "10:00",
+        "room": "Room 21",
+    },
+    {
         "subject": "Operating Systems PW SGr1/SGr2 - Group 1 (Guezouli Lyamine)",
         "day": "الاثنين",
         "start_time": "10:00",
@@ -96,13 +103,6 @@ SCHEDULE_DATA = [
         "day": "الثلاثاء",
         "start_time": "11:30",
         "end_time": "13:00",
-        "room": "Room 7",
-    },
-    {
-        "subject": "Advanced Data base PW (Guezzouli Larbi)",
-        "day": "الثلاثاء",
-        "start_time": "14:00",
-        "end_time": "15:30",
         "room": "Room 7",
     },
 

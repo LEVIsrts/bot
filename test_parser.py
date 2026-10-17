@@ -2,6 +2,10 @@
 test_parser.py - اختبار وحدة قراءة الـ PDF دون تشغيل البوت
 """
 import sys
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8")
+
 from pdf_parser import parse_schedule_pdf
 
 if __name__ == "__main__":
