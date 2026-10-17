@@ -21,6 +21,18 @@ from keyboards import (
     normal_rooms_keyboard,
     amphi_rooms_keyboard,
     confirm_keyboard,
+    day_schedule_keyboard,
+    week_overview_keyboard,
+    next_session_keyboard,
+)
+from schedule_formatter import (
+    format_day_schedule,
+    format_week_overview,
+    format_next_card,
+    get_today_name,
+    get_tomorrow_name,
+    get_current_datetime,
+    STUDY_DAYS,
 )
 from pdf_parser import parse_schedule_pdf
 
@@ -102,19 +114,29 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     if is_admin(user.id):
         await update.message.reply_text(
-            f"👋 أهلاً {name}!\n\n"
-            "🤖 <b>بوت إدارة الجداول الدراسية</b>\n\n"
-            "يمكنك رفع ملف PDF لاستخراج الجدول تلقائياً، "
-            "أو استخدام لوحة التحكم للتعديل والمتابعة.\n\n"
-            "اضغط /panel للوصول إلى لوحة التحكم.",
+            f"👋 أهلاً بك يا <b>{name}</b>!\n\n"
+            "🤖 <b>بوت الجدول الدراسي والتحكم الذكي</b>\n\n"
+            "📌 <b>أوامر استعراض الجداول:</b>\n"
+            "• /schedule أو /today — جدول اليوم التفاعلي\n"
+            "• /tomorrow — جدول الغد\n"
+            "• /next — الحصة القادمة والجارية الآن\n"
+            "• /week أو /fullschedule — الجدول الأسبوعي الكامل\n"
+            "• /day <i>[اليوم]</i> — جدول يوم مخصص (مثال: <code>/day الأحد</code>)\n\n"
+            "⚙️ لوحة المشرف: /panel\n"
+            "📄 يمكنك أيضاً إرسال ملف PDF لتحديث الجدول تلقائياً.",
             parse_mode=ParseMode.HTML,
         )
     else:
         await update.message.reply_text(
-            f"👋 أهلاً {name}!\n\n"
+            f"👋 أهلاً بك يا <b>{name}</b>!\n\n"
             "📅 <b>بوت متابعة الجدول الدراسي</b>\n\n"
-            "ستصلك تنبيهات تلقائية قبل بدء كل حصة بـ 15 دقيقة.\n"
-            "استخدم /schedule لعرض الجدول الكامل.",
+            "📌 <b>أوامر استعراض الجداول:</b>\n"
+            "• /schedule أو /today — جدول اليوم التفاعلي\n"
+            "• /tomorrow — جدول الغد\n"
+            "• /next — الحصة القادمة والجارية الآن\n"
+            "• /week — الجدول الأسبوعي الكامل\n"
+            "• /day <i>[اليوم]</i> — جدول يوم محدد (مثال: <code>/day الأحد</code>)\n\n"
+            "⏰ ستصلك تنبيهات تلقائية قبل بداية كل حصة بـ 15 دقيقة في المجموعة.",
             parse_mode=ParseMode.HTML,
         )
 
@@ -130,60 +152,56 @@ async def cmd_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """عرض جدول اليوم للجميع."""
-    today_ar = _today_arabic()
+    """عرض جدول اليوم للجميع بتصميم بطاقة حديث وتفاعلي."""
+    today_ar = get_today_name()
     sessions = db.get_sessions_by_day(today_ar)
-
-    if not sessions:
-        await update.message.reply_text(
-            f"📅 لا توجد حصص مجدولة اليوم ({today_ar})."
-        )
-        return
-
-    lines = [f"📅 <b>جدول اليوم — {today_ar}</b>\n"]
-    for s in sessions:
-        status = "✅" if not s["is_cancelled"] else "❌ (ملغى)"
-        lines.append(
-            f"{status} <b>{s['subject']}</b>\n"
-            f"   ⏰ {s['start_time']} → {s['end_time']}\n"
-            f"   📍 {s['room']}\n"
-        )
-
-    await update.message.reply_text(
-        "\n".join(lines), parse_mode=ParseMode.HTML
+    text = format_day_schedule(today_ar, sessions, is_today=True)
+    keyboard = day_schedule_keyboard(today_ar)
+    await update.effective_message.reply_text(
+        text, parse_mode=ParseMode.HTML, reply_markup=keyboard
     )
 
 
 async def cmd_full_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """عرض الجدول الكامل للأسبوع."""
-    sessions = db.get_all_sessions()
+    """عرض لوحة ملخص الجدول الأسبوعي الكامل مع أزرار تصفح الأيام."""
+    sessions = db.get_all_sessions(include_cancelled=True)
     if not sessions:
-        await update.message.reply_text("📭 لا توجد حصص محفوظة في قاعدة البيانات.")
+        await update.effective_message.reply_text("📭 لا توجد حصص محفوظة في قاعدة البيانات.")
         return
 
-    # تجميع حسب اليوم
-    by_day: dict[str, list] = {}
-    for s in sessions:
-        by_day.setdefault(s["day"], []).append(s)
+    text = format_week_overview(sessions)
+    keyboard = week_overview_keyboard()
+    await update.effective_message.reply_text(
+        text, parse_mode=ParseMode.HTML, reply_markup=keyboard
+    )
 
-    text = "📋 <b>الجدول الأسبوعي الكامل</b>\n\n"
-    for day, day_sessions in by_day.items():
-        text += f"━━━ <b>{day}</b> ━━━\n"
-        for s in day_sessions:
-            status = "✅" if not s["is_cancelled"] else "❌"
-            text += (
-                f"{status} {s['start_time']}-{s['end_time']} "
-                f"| {s['subject']} | {s['room']}\n"
-            )
-        text += "\n"
 
-    # تقسيم الرسالة إذا كانت طويلة
-    if len(text) > 4000:
-        chunks = [text[i:i+4000] for i in range(0, len(text), 4000)]
-        for chunk in chunks:
-            await update.message.reply_text(chunk, parse_mode=ParseMode.HTML)
-    else:
-        await update.message.reply_text(text, parse_mode=ParseMode.HTML)
+async def cmd_day(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """عرض جدول يوم محدد: /day الأحد أو /day tue"""
+    if not context.args:
+        today_ar = get_today_name()
+        sessions = db.get_sessions_by_day(today_ar)
+        text = format_day_schedule(today_ar, sessions, is_today=True)
+        keyboard = day_schedule_keyboard(today_ar)
+        await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+        return
+
+    raw_query = " ".join(context.args).strip().lower()
+    day_ar = DAY_MAP.get(raw_query)
+    if not day_ar:
+        await update.effective_message.reply_text(
+            "❌ اسم اليوم غير معروف.\n"
+            "أمثلة: <code>/day الأحد</code> ، <code>/day الاثنين</code> ، <code>/day tue</code>",
+            parse_mode=ParseMode.HTML
+        )
+        return
+
+    today_ar = get_today_name()
+    is_today = (day_ar == today_ar)
+    sessions = db.get_sessions_by_day(day_ar)
+    text = format_day_schedule(day_ar, sessions, is_today=is_today)
+    keyboard = day_schedule_keyboard(day_ar)
+    await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
 
 # ══════════════════════════════════════════════════════════════
@@ -271,22 +289,54 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     data = query.data
 
-    # ── أزرار عامة متاحة لجميع الطلاب من بطاقة التنبيه ─────────────────
+    # ── أزرار عامة متاحة لجميع الطلاب لتصفح الجداول التفاعلية ────────
     if data == "btn:today":
-        today_ar = _today_arabic()
+        today_ar = get_today_name()
         sessions = db.get_sessions_by_day(today_ar)
-        if not sessions:
-            await query.message.reply_text(f"📅 لا توجد حصص مجدولة اليوم (<b>{today_ar}</b>).", parse_mode=ParseMode.HTML)
-            return
-        lines = [f"📅 <b>جدول اليوم — {today_ar}</b>\n"]
-        for s in sessions:
-            st = "✅" if not s["is_cancelled"] else "❌"
-            lines.append(f"{st} <b>{s['subject']}</b>\n   ⏰ <code>{s['start_time']}</code> ➔ <code>{s['end_time']}</code>  |  📍 <b>{s['room']}</b>")
-        await query.message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+        text = format_day_schedule(today_ar, sessions, is_today=True)
+        keyboard = day_schedule_keyboard(today_ar)
+        try:
+            await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+        except Exception:
+            await query.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+        return
+
+    elif data == "btn:tomorrow":
+        tomorrow_ar = get_tomorrow_name()
+        sessions = db.get_sessions_by_day(tomorrow_ar)
+        text = format_day_schedule(tomorrow_ar, sessions, is_today=False)
+        keyboard = day_schedule_keyboard(tomorrow_ar)
+        try:
+            await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+        except Exception:
+            await query.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+        return
+
+    elif data == "btn:week":
+        sessions = db.get_all_sessions(include_cancelled=True)
+        text = format_week_overview(sessions)
+        keyboard = week_overview_keyboard()
+        try:
+            await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+        except Exception:
+            await query.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
         return
 
     elif data == "btn:next":
         await cmd_next(update, context)
+        return
+
+    elif data.startswith("view_day:"):
+        day = data.split(":", 1)[1]
+        today_ar = get_today_name()
+        is_today = (day == today_ar)
+        sessions = db.get_sessions_by_day(day)
+        text = format_day_schedule(day, sessions, is_today=is_today)
+        keyboard = day_schedule_keyboard(day)
+        try:
+            await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+        except Exception as e:
+            logger.debug(f"تعديل الرسالة: {e}")
         return
 
     # ── فحص صلاحية المشرف لباقي أزرار التحكم ───────────────────────────
@@ -298,39 +348,21 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     # ── القائمة الرئيسية ──────────────────────────────────────────
     if data == "menu:today":
-        today_ar = _today_arabic()
+        today_ar = get_today_name()
         sessions = db.get_sessions_by_day(today_ar)
-        if not sessions:
-            await query.edit_message_text(
-                f"📅 لا توجد حصص اليوم ({today_ar}).",
-                reply_markup=admin_main_menu(),
-            )
-        else:
-            lines = [f"📅 <b>حصص اليوم — {today_ar}</b>\n"]
-            for s in sessions:
-                st = "✅" if not s["is_cancelled"] else "❌"
-                lines.append(f"{st} {s['start_time']}-{s['end_time']} | {s['subject']} | {s['room']}")
-            await query.edit_message_text(
-                "\n".join(lines),
-                parse_mode=ParseMode.HTML,
-                reply_markup=admin_main_menu(),
-            )
+        text = format_day_schedule(today_ar, sessions, is_today=True)
+        await query.edit_message_text(
+            text,
+            parse_mode=ParseMode.HTML,
+            reply_markup=admin_main_menu(),
+        )
 
     elif data == "menu:all":
         sessions = db.get_all_sessions(include_cancelled=True)
         if not sessions:
             await query.edit_message_text("📭 لا توجد حصص.", reply_markup=admin_main_menu())
         else:
-            by_day: dict[str, list] = {}
-            for s in sessions:
-                by_day.setdefault(s["day"], []).append(s)
-            text = "📋 <b>الجدول الكامل</b>\n\n"
-            for day, ss in by_day.items():
-                text += f"<b>── {day} ──</b>\n"
-                for s in ss:
-                    icon = "✅" if not s["is_cancelled"] else "❌"
-                    text += f"  {icon} {s['start_time']}–{s['end_time']} | {s['subject']} | {s['room']}\n"
-                text += "\n"
+            text = format_week_overview(sessions)
             await query.edit_message_text(
                 text[:4000], parse_mode=ParseMode.HTML, reply_markup=admin_main_menu()
             )
@@ -773,33 +805,13 @@ async def cmd_remove_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -
 # ══════════════════════════════════════════════════════════════
 
 def _today_arabic() -> str:
-    """أرجع اسم اليوم الحالي بالعربية."""
-    weekday_map = {
-        0: "الاثنين",
-        1: "الثلاثاء",
-        2: "الأربعاء",
-        3: "الخميس",
-        4: "الجمعة",
-        5: "السبت",
-        6: "الأحد",
-    }
-    return weekday_map[datetime.now().weekday()]
+    """أرجع اسم اليوم الحالي بالعربية وفق التوقيت المحلي."""
+    return get_today_name()
 
 
 def _tomorrow_arabic() -> str:
-    """أرجع اسم يوم الغد بالعربية."""
-    from datetime import timedelta
-    weekday_map = {
-        0: "الاثنين",
-        1: "الثلاثاء",
-        2: "الأربعاء",
-        3: "الخميس",
-        4: "الجمعة",
-        5: "السبت",
-        6: "الأحد",
-    }
-    tomorrow = datetime.now() + timedelta(days=1)
-    return weekday_map[tomorrow.weekday()]
+    """أرجع اسم يوم الغد بالعربية وفق التوقيت المحلي."""
+    return get_tomorrow_name()
 
 
 # ══════════════════════════════════════════════════════════════
@@ -807,9 +819,9 @@ def _tomorrow_arabic() -> str:
 # ══════════════════════════════════════════════════════════════
 
 async def cmd_next(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """معرفة الحصة القادمة مباشرة بناءً على التوقيت الحالي."""
-    now = datetime.now()
-    today_ar = _today_arabic()
+    """معرفة الحصة القادمة والجارية الآن بناءً على التوقيت المحلي بدقة."""
+    now = get_current_datetime()
+    today_ar = get_today_name()
     sessions = db.get_sessions_by_day(today_ar)
     current_time_str = now.strftime("%H:%M")
 
@@ -822,70 +834,22 @@ async def cmd_next(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         elif s["start_time"] > current_time_str:
             upcoming.append(s)
 
-    parts = []
-    if current_running:
-        parts.append(
-            f"🟢 <b>حصة جارية الآن:</b>\n"
-            f"📚 <b>{current_running['subject']}</b>\n"
-            f"⏰ <code>{current_running['start_time']}</code> ➔ <code>{current_running['end_time']}</code>\n"
-            f"📍 {current_running['room']}"
-        )
+    tomorrow_ar = get_tomorrow_name()
+    tomorrow_sessions = db.get_sessions_by_day(tomorrow_ar)
+    tomorrow_first = tomorrow_sessions[0] if tomorrow_sessions else None
 
-    if upcoming:
-        next_s = upcoming[0]
-        try:
-            h, m = map(int, next_s["start_time"].split(":"))
-            target_dt = now.replace(hour=h, minute=m, second=0)
-            diff_mins = int((target_dt - now).total_seconds() / 60)
-            if diff_mins <= 0:
-                diff_text = "تبدأ الآن"
-            elif diff_mins < 60:
-                diff_text = f"بعد {diff_mins} دقيقة"
-            else:
-                diff_text = f"بعد {diff_mins // 60} ساعة و {diff_mins % 60} دقيقة"
-        except Exception:
-            diff_text = ""
-
-        parts.append(
-            f"⏳ <b>الحصة القادمة ({diff_text}):</b>\n"
-            f"📚 <b>{next_s['subject']}</b>\n"
-            f"⏰ <code>{next_s['start_time']}</code> ➔ <code>{next_s['end_time']}</code>\n"
-            f"📍 {next_s['room']}"
-        )
-    elif not current_running:
-        tomorrow_ar = _tomorrow_arabic()
-        tomorrow_sessions = db.get_sessions_by_day(tomorrow_ar)
-        if tomorrow_sessions:
-            first_s = tomorrow_sessions[0]
-            parts.append(
-                f"✨ انتهت جميع حصص اليوم (<b>{today_ar}</b>)!\n\n"
-                f"🌅 <b>أول حصة غداً ({tomorrow_ar}):</b>\n"
-                f"📚 <b>{first_s['subject']}</b>\n"
-                f"⏰ <code>{first_s['start_time']}</code> ➔ <code>{first_s['end_time']}</code>\n"
-                f"📍 {first_s['room']}"
-            )
-        else:
-            parts.append(f"✨ انتهت جميع حصص اليوم (<b>{today_ar}</b>) ولا توجد حصص مجدولة غداً (<b>{tomorrow_ar}</b>).")
-
-    await update.effective_message.reply_text("\n\n".join(parts), parse_mode=ParseMode.HTML)
+    text = format_next_card(current_running, upcoming, tomorrow_first, today_ar)
+    keyboard = next_session_keyboard()
+    await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
 
 async def cmd_tomorrow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """عرض جدول الغد."""
-    tomorrow_ar = _tomorrow_arabic()
+    """عرض جدول الغد بتصميم حديث وتفاعلي."""
+    tomorrow_ar = get_tomorrow_name()
     sessions = db.get_sessions_by_day(tomorrow_ar)
-
-    if not sessions:
-        await update.effective_message.reply_text(f"🏖️ لا توجد حصص دراسية غداً (<b>{tomorrow_ar}</b>).", parse_mode=ParseMode.HTML)
-        return
-
-    lines = [f"🌅 <b>جدول الغد — {tomorrow_ar}</b>\n"]
-    for s in sessions:
-        lines.append(
-            f"• <b>{s['subject']}</b>\n"
-            f"  ⏰ <code>{s['start_time']}</code> ➔ <code>{s['end_time']}</code>  |  📍 <b>{s['room']}</b>\n"
-        )
-    await update.effective_message.reply_text("\n".join(lines), parse_mode=ParseMode.HTML)
+    text = format_day_schedule(tomorrow_ar, sessions, is_today=False)
+    keyboard = day_schedule_keyboard(tomorrow_ar)
+    await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
 
 async def cmd_set_topic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

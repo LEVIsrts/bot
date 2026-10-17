@@ -89,27 +89,22 @@ async def send_alert(bot: Bot, session_id: int) -> None:
         logger.info(f"ℹ️ الحصة {session_id} ملغاة، لا يُرسَل تنبيه.")
         return
 
-    # تحديد نوع القاعة بشكل ذكي
-    room: str = session["room"]
-    room_upper = room.upper()
-    if room_upper.startswith("CC"):
-        room_type = "🖥️ مختبر إعلام آلي (CC)"
-    elif room_upper.startswith("AMPHI"):
-        room_type = "🏛️ مدرج محاضرات (Amphi)"
-    else:
-        room_type = "🏫 قاعة دراسية عادية"
+    # استخراج تفاصيل منسقة وذكية للحصة
+    from schedule_formatter import parse_session_details
+    d = parse_session_details(session["subject"], session["room"])
 
     mention_text = await _build_mention_text(bot)
 
     text = (
         f"🚨 <b>تنبيه باقتراب موعد الحصة الدراسية</b> 🚨\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
         f"⏳ <b>تبدأ بعد:</b> <code>{REMINDER_MINUTES_BEFORE} دقيقة</code>\n\n"
-        f"📖 <b>المادة:</b> <b>{session['subject']}</b>\n"
-        f"📅 <b>اليوم:</b> {session['day']}\n"
+        f"{d['type_icon']} <b>المادة:</b> <b>{session['subject']}</b>\n"
+        f"📅 <b>اليوم:</b> <b>{session['day']}</b>\n"
         f"⏰ <b>التوقيت:</b> <code>{session['start_time']}</code> ➔ <code>{session['end_time']}</code>\n"
-        f"📍 <b>المكان:</b> <b>{room}</b>  <i>({room_type})</i>\n"
-        f"━━━━━━━━━━━━━━━━━━━\n"
+        f"{d['room_icon']} <b>المكان:</b> <b>{d['room_clean']}</b>  <i>({d['room_desc']})</i>\n"
+        f"📌 <b>النوع:</b> {d['type']}\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
         f"👥 {mention_text}"
     )
 
@@ -120,7 +115,8 @@ async def send_alert(bot: Bot, session_id: int) -> None:
             InlineKeyboardButton("⏭️ الحصة التالية", callback_data="btn:next"),
         ],
         [
-            InlineKeyboardButton("🔄 تغيير القاعة (مشرف)", callback_data=f"edit:room:{session_id}")
+            InlineKeyboardButton("📋 ملخص الأسبوع", callback_data="btn:week"),
+            InlineKeyboardButton("🔄 تغيير القاعة", callback_data=f"edit:room:{session_id}")
         ]
     ])
 

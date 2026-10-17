@@ -41,6 +41,7 @@ from handlers import (
     cmd_panel,
     cmd_schedule,
     cmd_full_schedule,
+    cmd_day,
     cmd_next,
     cmd_tomorrow,
     cmd_stats,
@@ -179,7 +180,9 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("start",          cmd_start))
     app.add_handler(CommandHandler("schedule",       cmd_schedule))
     app.add_handler(CommandHandler("today",          cmd_schedule))
+    app.add_handler(CommandHandler("day",            cmd_day))
     app.add_handler(CommandHandler("fullschedule",   cmd_full_schedule))
+    app.add_handler(CommandHandler("week",           cmd_full_schedule))
     app.add_handler(CommandHandler("next",           cmd_next))
     app.add_handler(CommandHandler("tomorrow",       cmd_tomorrow))
     app.add_handler(CommandHandler("stats",          cmd_stats))

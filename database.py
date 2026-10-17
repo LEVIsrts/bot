@@ -100,15 +100,29 @@ def insert_session(subject: str, day: str, start_time: str, end_time: str, room:
         return cur.lastrowid
 
 
+DAY_ORDER_SQL = """
+    CASE day
+        WHEN 'الأحد' THEN 1
+        WHEN 'الاثنين' THEN 2
+        WHEN 'الثلاثاء' THEN 3
+        WHEN 'الأربعاء' THEN 4
+        WHEN 'الخميس' THEN 5
+        WHEN 'الجمعة' THEN 6
+        WHEN 'السبت' THEN 7
+        ELSE 8
+    END, start_time
+"""
+
+
 def get_all_sessions(include_cancelled: bool = False) -> list[sqlite3.Row]:
-    """اجلب جميع الحصص مرتبةً حسب اليوم والوقت."""
+    """اجلب جميع الحصص مرتبةً زمنياً حسب أيام الأسبوع (الأحد → الخميس) ثم الوقت."""
     with get_conn() as conn:
         if include_cancelled:
             return conn.execute(
-                "SELECT * FROM sessions ORDER BY day, start_time"
+                f"SELECT * FROM sessions ORDER BY {DAY_ORDER_SQL}"
             ).fetchall()
         return conn.execute(
-            "SELECT * FROM sessions WHERE is_cancelled=0 ORDER BY day, start_time"
+            f"SELECT * FROM sessions WHERE is_cancelled=0 ORDER BY {DAY_ORDER_SQL}"
         ).fetchall()
 
 
