@@ -44,6 +44,7 @@ from handlers import (
     cmd_day,
     cmd_next,
     cmd_tomorrow,
+    cmd_translate,
     cmd_stats,
     cmd_set_topic,
     cmd_test_alert,
@@ -185,6 +186,7 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("week",           cmd_full_schedule))
     app.add_handler(CommandHandler("next",           cmd_next))
     app.add_handler(CommandHandler("tomorrow",       cmd_tomorrow))
+    app.add_handler(CommandHandler(["tr", "trad", "translate"], cmd_translate))
     app.add_handler(CommandHandler("stats",          cmd_stats))
 
     # ── أوامر المشرفين ───────────────────────────────────────────

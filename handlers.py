@@ -40,43 +40,55 @@ logger = logging.getLogger(__name__)
 
 
 def translate_ar_to_en(text: str) -> str:
-    """ترجمة دقيقة وسريعة من العربية إلى الإنجليزية بدون قيود ولا حظر."""
+    """ترجمة دقيقة وسريعة من العربية إلى الإنجليزية عبر عدة محركات احتياطية."""
     if not text or not text.strip():
         return ""
 
     raw_text = text.strip()
 
-    # 1. المحرك الأساسي: Google Chrome Extension API المباشر (سريع جداً، موثوق، لا يحظر إطلاقاً)
+    import urllib.request
+    import urllib.parse
+    import json
+
+    encoded = urllib.parse.quote(raw_text)
+
+    # 1. المحرك الأساسي: Google Translate GTX (فوري، عالي الدقة، بدون أي قيود)
     try:
-        import urllib.request
-        import urllib.parse
-        import json
-        encoded_query = urllib.parse.quote(raw_text)
-        url = f"https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl=en&q={encoded_query}"
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q={encoded}"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
-        with urllib.request.urlopen(req, timeout=6) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+            if data and isinstance(data, list) and isinstance(data[0], list):
+                res = "".join(item[0] for item in data[0] if isinstance(item, list) and item and item[0])
+                if res and res.strip():
+                    return res.strip()
+    except Exception as e:
+        logger.debug(f"⚠️ [Google GTX Translate] فشل: {e}")
+
+    # 2. المحرك الثاني: Google Chrome Extension API
+    try:
+        url = f"https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl=en&q={encoded}"
+        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
+        with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             if isinstance(data, list) and data:
                 parts = [item[0] for item in data if isinstance(item, list) and item and item[0]]
                 if parts:
                     return " ".join(parts).strip()
     except Exception as e:
-        logger.warning(f"⚠️ [Google Translate API] فشل: {e}")
+        logger.debug(f"⚠️ [Google Chrome Extension API] فشل: {e}")
 
-    # 2. المحرك الاحتياطي: MyMemory مع البريد لرفع الحصة اليومية
+    # 3. المحرك الثالث: MyMemory الاحتياطي
     try:
-        import urllib.request
-        import urllib.parse
-        import json
-        url = "https://api.mymemory.translated.net/get?q=" + urllib.parse.quote(raw_text) + "&langpair=ar|en&de=iyeddevbot@gmail.com"
+        url = f"https://api.mymemory.translated.net/get?q={encoded}&langpair=ar|en&de=iyeddevbot@gmail.com"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=6) as resp:
+        with urllib.request.urlopen(req, timeout=5) as resp:
             res = json.loads(resp.read().decode("utf-8"))
             t = res.get("responseData", {}).get("translatedText")
             if t and "MYMEMORY" not in t and t.strip() != raw_text:
                 return t.strip()
     except Exception as e:
-        logger.warning(f"⚠️ [MyMemory Translate] فشل: {e}")
+        logger.debug(f"⚠️ [MyMemory Translate] فشل: {e}")
 
     return raw_text
 
@@ -413,7 +425,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
 
     elif data == "menu:settings":
         from keyboards import settings_menu_keyboard
-        trans_topic = db.get_setting("translate_topic_id", "2")
+        trans_topic = db.get_setting("translate_topic_id", "0")
         topic_desc = f"الموضوع رقم {trans_topic}" if trans_topic and trans_topic != "0" else "كافة المواضيع (عام)"
         is_on = db.get_setting("translate_enabled", "1") == "1"
         status_label = "شغالة 🟢" if is_on else "متوقفة ⏸️"
@@ -433,7 +445,7 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         status_txt = "🟢 تم تفعيل الترجمة!" if new_val == "1" else "⏸️ تم إيقاف الترجمة!"
         await query.answer(status_txt, show_alert=False)
 
-        trans_topic = db.get_setting("translate_topic_id", "2")
+        trans_topic = db.get_setting("translate_topic_id", "0")
         topic_desc = f"الموضوع رقم {trans_topic}" if trans_topic and trans_topic != "0" else "كافة المواضيع (عام)"
         status_label = "شغالة 🟢" if new_val == "1" else "متوقفة ⏸️"
         text = (
@@ -1048,7 +1060,7 @@ async def cmd_bot_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     if not await _check_admin(update):
         return
 
-    trans_topic = db.get_setting("translate_topic_id", "2")
+    trans_topic = db.get_setting("translate_topic_id", "0")
     topic_desc = f"الموضوع رقم {trans_topic}" if trans_topic and trans_topic != "0" else "كافة المواضيع (عام)"
     is_on = db.get_setting("translate_enabled", "1") == "1"
     status_label = "شغالة 🟢" if is_on else "متوقفة ⏸️"
@@ -1070,6 +1082,36 @@ async def cmd_bot_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -
         "  └ تغيير التوبك: <code>/settopic [رقم]</code>\n"
     )
     await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML)
+
+
+async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """ترجمة فورية لأي نص أو رد على رسالة: /tr أو /trad أو /translate"""
+    msg = update.effective_message
+    if not msg:
+        return
+
+    target_text = ""
+    if msg.reply_to_message and msg.reply_to_message.text:
+        target_text = msg.reply_to_message.text.strip()
+    elif context.args:
+        target_text = " ".join(context.args).strip()
+
+    if not target_text:
+        await msg.reply_text(
+            "ℹ️ <b>طريقة الترجمة الفورية:</b>\n"
+            "• اكتب <code>/tr مرحباً</code> أو <code>/trad أي نص</code>\n"
+            "• أو قم بالرد (Reply) على أي رسالة واكتب <code>/tr</code>",
+            parse_mode=ParseMode.HTML,
+        )
+        return
+
+    translated = translate_ar_to_en(target_text)
+    if not translated or translated.strip().lower() == target_text.strip().lower():
+        await msg.reply_text("⚠️ لم يتغير النص أو تعذرت الترجمة.")
+        return
+
+    await msg.reply_text(f"🇬🇧 {translated}")
+
 
 
 
