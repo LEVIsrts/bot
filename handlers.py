@@ -43,7 +43,7 @@ from pdf_parser import parse_schedule_pdf
 logger = logging.getLogger(__name__)
 
 
-def translate_with_gemini(text: str, api_key: str) -> str | None:
+def translate_with_gemini(text: str, api_key: str, target_lang: str = "en") -> str | None:
     """ترجمة احترافية ودقيقة بواسطة Google Gemini AI (gemini-3.6-flash)."""
     if not api_key or not text.strip():
         return None
@@ -51,6 +51,23 @@ def translate_with_gemini(text: str, api_key: str) -> str | None:
     import urllib.request
     import urllib.error
     import json
+
+    if target_lang == "ar":
+        instruction = (
+            "You are a professional instant translator from English to Arabic. "
+            "Translate the given English text accurately into clear, modern, natural Arabic. "
+            "Preserve emojis, acronyms, and technical terms. "
+            "Output ONLY the raw Arabic translation. "
+            "Do not include quotes, notes, pronunciation, or explanations."
+        )
+    else:
+        instruction = (
+            "You are a professional instant translator from Arabic to English. "
+            "Translate the given Arabic text accurately into clean, natural modern English. "
+            "Preserve emojis, acronyms, and technical terms. "
+            "Output ONLY the raw English translation. "
+            "Do not include quotes, notes, pronunciation, or explanations."
+        )
 
     payload = {
         "contents": [
@@ -63,13 +80,7 @@ def translate_with_gemini(text: str, api_key: str) -> str | None:
         "systemInstruction": {
             "parts": [
                 {
-                    "text": (
-                        "You are a professional instant translator from Arabic to English. "
-                        "Translate the given Arabic text accurately into clean, natural modern English. "
-                        "Preserve emojis, acronyms, and technical terms. "
-                        "Output ONLY the raw English translation. "
-                        "Do not include quotes, notes, pronunciation, or explanations."
-                    )
+                    "text": instruction
                 }
             ]
         },
@@ -104,7 +115,7 @@ def translate_with_gemini(text: str, api_key: str) -> str | None:
                     if parts:
                         res = parts[0].get("text", "").strip()
                         if res:
-                            logger.info(f"✨ تمت الترجمة بنجاح عبر Gemini ({model})")
+                            logger.info(f"✨ تمت الترجمة بنجاح عبر Gemini ({model}) إلى {target_lang}")
                             return res
         except urllib.error.HTTPError as e:
             err_msg = e.read().decode("utf-8", errors="ignore") if hasattr(e, "read") else str(e)
@@ -117,24 +128,43 @@ def translate_with_gemini(text: str, api_key: str) -> str | None:
     return None
 
 
-def translate_ar_to_en(text: str) -> str:
-    """ترجمة دقيقة وسريعة من العربية إلى الإنجليزية عبر Gemini AI ومحركات احتياطية."""
+def translate_text(text: str, target_mode: str = "auto") -> tuple[str, str]:
+    """
+    ترجمة ذكية تدعم الخيارات (عربي -> إنجليزي | إنجليزي -> عربي | تلقائي ثنائي).
+    ترجع: (النص_المترجم, كود_اللغة 'en' أو 'ar')
+    """
     if not text or not text.strip():
-        return ""
+        return "", ""
 
     raw_text = text.strip()
+    import re
+
+    has_ar = bool(re.search(r"[\u0600-\u06FF]", raw_text))
+    has_en = bool(re.search(r"[a-zA-Z]", raw_text))
+
+    if target_mode == "en":
+        target = "en"
+    elif target_mode == "ar":
+        target = "ar"
+    else:  # auto
+        if has_ar:
+            target = "en"
+        elif has_en:
+            target = "ar"
+        else:
+            return "", ""
 
     # 1. المحرك الأول الذكي: Google Gemini AI
     gemini_key = db.get_setting("gemini_api_key") or GEMINI_API_KEY
     if gemini_key:
         try:
-            res_gemini = translate_with_gemini(raw_text, gemini_key)
+            res_gemini = translate_with_gemini(raw_text, gemini_key, target_lang=target)
             if res_gemini and res_gemini.strip() and res_gemini.strip().lower() != raw_text.strip().lower():
-                return res_gemini.strip()
+                return res_gemini.strip(), target
         except Exception as e:
             logger.warning(f"⚠️ تعذر الترجمة بـ Gemini، جاري التبديل للمحرك الاحتياطي: {e}")
 
-    # 2. المحرك الاحتياطي الفوري: Google Translate GTX (بدون قيود ولا حظر)
+    # 2. المحرك الاحتياطي الفوري: Google Translate GTX
     import urllib.request
     import urllib.parse
     import json
@@ -142,43 +172,39 @@ def translate_ar_to_en(text: str) -> str:
     encoded = urllib.parse.quote(raw_text)
 
     try:
-        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q={encoded}"
+        url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={target}&dt=t&q={encoded}"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             if data and isinstance(data, list) and isinstance(data[0], list):
                 res = "".join(item[0] for item in data[0] if isinstance(item, list) and item and item[0])
-                if res and res.strip():
-                    return res.strip()
+                if res and res.strip() and res.strip().lower() != raw_text.strip().lower():
+                    return res.strip(), target
     except Exception as e:
         logger.debug(f"⚠️ [Google GTX Translate] فشل: {e}")
 
     # 3. المحرك الثالث: Google Chrome Extension API
     try:
-        url = f"https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl=en&q={encoded}"
+        url = f"https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl={target}&q={encoded}"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read().decode("utf-8"))
             if isinstance(data, list) and data:
                 parts = [item[0] for item in data if isinstance(item, list) and item and item[0]]
                 if parts:
-                    return " ".join(parts).strip()
+                    res = " ".join(parts).strip()
+                    if res and res.lower() != raw_text.lower():
+                        return res, target
     except Exception as e:
         logger.debug(f"⚠️ [Google Chrome Extension API] فشل: {e}")
 
-    # 4. المحرك الرابع: MyMemory الاحتياطي
-    try:
-        url = f"https://api.mymemory.translated.net/get?q={encoded}&langpair=ar|en&de=iyeddevbot@gmail.com"
-        req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            res = json.loads(resp.read().decode("utf-8"))
-            t = res.get("responseData", {}).get("translatedText")
-            if t and "MYMEMORY" not in t and t.strip() != raw_text:
-                return t.strip()
-    except Exception as e:
-        logger.debug(f"⚠️ [MyMemory Translate] فشل: {e}")
+    return raw_text, target
 
-    return raw_text
+
+def translate_ar_to_en(text: str) -> str:
+    """دالة التوافقية السابقة للترجمة إلى الإنجليزية."""
+    res, _ = translate_text(text, target_mode="en")
+    return res
 
 
 # ══════════════════════════════════════════════════════════════
@@ -416,22 +442,32 @@ def _render_settings_hub_text() -> str:
 
 
 def _render_translate_settings_text() -> str:
-    """بناء نص لوحة إعدادات توبيك الترجمة."""
+    """بناء نص لوحة إعدادات توبيك الترجمة وخيارات اللغات."""
     trans_topic = db.get_setting("translate_topic_id", "0")
     topic_desc = f"الموضوع #{trans_topic}" if trans_topic and trans_topic != "0" else "كافة المواضيع (عام) 🌐"
     is_on = db.get_setting("translate_enabled", "1") == "1"
     status_label = "شغالة 🟢" if is_on else "متوقفة ⏸️"
 
+    curr_lang = db.get_setting("translate_target_lang", "auto")
+    if curr_lang == "en":
+        lang_desc = "إلى الإنجليزية 🇬🇧 (عربي ➡️ EN)"
+    elif curr_lang == "ar":
+        lang_desc = "إلى العربية 🇸🇦 (EN ➡️ عربي)"
+    else:
+        lang_desc = "ثنائي الاتجاه 🔄 (عربي ↔️ إنجليزي تلقائياً)"
+
     gemini_key = db.get_setting("gemini_api_key") or GEMINI_API_KEY
-    engine = "Google Gemini AI ✨" if gemini_key else "Google GTX (مباشر ومجاني) ⚡"
+    engine = "Google Gemini 3.6 Flash ✨" if gemini_key else "Google GTX (مباشر ومجاني) ⚡"
 
     return (
         "🌐 <b>إعدادات توبيك الترجمة الفورية</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         f"⚡ <b>حالة الخدمة:</b> <b>{status_label}</b>\n"
+        f"🗣️ <b>اتجاه الترجمة:</b> <b>{lang_desc}</b>\n"
         f"📌 <b>توبيك الترجمة الحالي:</b> <code>{topic_desc}</code>\n"
         f"🤖 <b>المحرك الفعّال:</b> <b>{engine}</b>\n\n"
-        "💡 <b>الخيارات المتاحة:</b>\n"
+        "💡 <b>الخيارات المتاحة في القائمة أدناه:</b>\n"
+        "• <b>🇬🇧 إنجليزي / 🇸🇦 عربي / 🔄 ثنائي:</b> اختيار لغة وجهة الترجمة.\n"
         "• <b>تشغيل / إيقاف:</b> تفعيل أو تعطيل الترجمة.\n"
         "• <b>قفل على هذا التوبك:</b> الترجمة تعمل فقط في التوبك الحالي.\n"
         "• <b>تفعيل في كل التوبكات:</b> ترجمة الرسائل في كافة توبكات المجموعة.\n"
@@ -641,6 +677,24 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
         status_txt = "🟢 تم تفعيل الترجمة!" if new_val == "1" else "⏸️ تم إيقاف الترجمة!"
         try:
             await query.answer(status_txt)
+        except Exception:
+            pass
+        await query.edit_message_text(
+            _render_translate_settings_text(),
+            parse_mode=ParseMode.HTML,
+            reply_markup=translate_settings_keyboard(),
+        )
+
+    elif data.startswith("trans:lang:"):
+        new_lang = data.split(":")[-1]  # "en", "ar", "auto"
+        db.set_setting("translate_target_lang", new_lang)
+        names = {
+            "en": "🇬🇧 تم تعيين الترجمة إلى الإنجليزية (عربي ➡️ EN)",
+            "ar": "🇸🇦 تم تعيين الترجمة إلى العربية (EN ➡️ عربي)",
+            "auto": "🔄 تم تفعيل الترجمة ثنائية الاتجاه (عربي ↔️ إنجليزي) تلقائياً",
+        }
+        try:
+            await query.answer(names.get(new_lang, "✅ تم تغيير لغة الترجمة!"))
         except Exception:
             pass
         await query.edit_message_text(
@@ -1115,17 +1169,27 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         if not clean_text:
             return
 
-        # التحقق من احتواء النص على حروف عربية
-        if not re.search(r"[\u0600-\u06FF]", clean_text):
-            return
+        target_mode = db.get_setting("translate_target_lang", "auto")
 
-        # ترجمة النص إلى الإنجليزية
-        translated = translate_ar_to_en(clean_text)
+        # فحص احتواء النص على حروف عربية أو إنجليزية
+        has_ar = bool(re.search(r"[\u0600-\u06FF]", clean_text))
+        has_en = bool(re.search(r"[a-zA-Z]", clean_text))
+
+        # تصفية حسب اتجاه الترجمة المحدد
+        if target_mode == "en" and not has_ar:
+            return  # المطلوب إنجليزي فقط والنص لا يحتوي على عربي
+        elif target_mode == "ar" and not has_en:
+            return  # المطلوب عربي فقط والنص لا يحتوي على إنجليزي
+        elif not has_ar and not has_en:
+            return  # نص أرقام أو رموز فقط
+
+        # ترجمة النص عبر المحرك الذكي (Gemini 3.6 Flash)
+        translated, target_code = translate_text(clean_text, target_mode=target_mode)
         if not translated or translated.strip().lower() == clean_text.strip().lower():
-            # إذا تعذرت الترجمة أو لم يتغير النص، لا نكرر النص العربي في الشات
             return
 
-        reply_text = f"🇬🇧 {translated}"
+        flag = "🇬🇧" if target_code == "en" else "🇸🇦"
+        reply_text = f"{flag} {translated}"
 
         try:
             await msg.reply_text(
@@ -1536,12 +1600,14 @@ async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         )
         return
 
-    translated = translate_ar_to_en(target_text)
+    target_mode = db.get_setting("translate_target_lang", "auto")
+    translated, target_code = translate_text(target_text, target_mode=target_mode)
     if not translated or translated.strip().lower() == target_text.strip().lower():
         await msg.reply_text("⚠️ لم يتغير النص أو تعذرت الترجمة.")
         return
 
-    await msg.reply_text(f"🇬🇧 {translated}")
+    flag = "🇬🇧" if target_code == "en" else "🇸🇦"
+    await msg.reply_text(f"{flag} {translated}")
 
 
 

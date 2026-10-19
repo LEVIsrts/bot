@@ -33,10 +33,26 @@ def settings_menu_keyboard() -> InlineKeyboardMarkup:
     ])
 
 
-def translate_settings_keyboard() -> InlineKeyboardMarkup:
-    """لوحة التحكم الخاصة بتوبيك الترجمة وحالة الخدمة."""
+def translate_settings_keyboard(current_lang: str | None = None) -> InlineKeyboardMarkup:
+    """لوحة التحكم الخاصة بتوبيك الترجمة وخيارات اللغات (عربي / إنجليزي)."""
+    if current_lang is None:
+        try:
+            import database as db
+            current_lang = db.get_setting("translate_target_lang", "auto")
+        except Exception:
+            current_lang = "auto"
+
+    btn_en = f"🇬🇧 إنجليزي {'✅' if current_lang == 'en' else ''}"
+    btn_ar = f"🇸🇦 عربي {'✅' if current_lang == 'ar' else ''}"
+    btn_auto = f"🔄 ثنائي (عربي ↔️ EN) {'✅' if current_lang == 'auto' else ''}"
+
     return InlineKeyboardMarkup([
         [InlineKeyboardButton("🔄 تشغيل / إيقاف الترجمة", callback_data="trans:toggle")],
+        [
+            InlineKeyboardButton(btn_en, callback_data="trans:lang:en"),
+            InlineKeyboardButton(btn_ar, callback_data="trans:lang:ar"),
+        ],
+        [InlineKeyboardButton(btn_auto, callback_data="trans:lang:auto")],
         [InlineKeyboardButton("📌 قفل الترجمة على هذا التوبك", callback_data="trans:lockhere")],
         [InlineKeyboardButton("🌐 تفعيل في كل التوبكات (عام)", callback_data="trans:setall")],
         [InlineKeyboardButton("✏️ إدخال رقم توبك الترجمة يدوياً", callback_data="trans:custom_id")],
