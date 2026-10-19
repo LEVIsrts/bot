@@ -44,36 +44,49 @@ logger = logging.getLogger(__name__)
 
 
 def translate_with_gemini(text: str, api_key: str) -> str | None:
-    """ترجمة احترافية ودقيقة بواسطة Google Gemini AI."""
+    """ترجمة احترافية ودقيقة بواسطة Google Gemini AI (gemini-3.6-flash)."""
     if not api_key or not text.strip():
         return None
 
     import urllib.request
+    import urllib.error
     import json
-
-    prompt = (
-        "You are an expert bilingual Arabic-English translator for university students. "
-        "Translate the following Arabic message into natural, modern English. "
-        "Preserve emojis, acronyms, and technical terms. "
-        "Output ONLY the English translation, without any notes, explanations, or quotes:\n\n"
-        f"{text}"
-    )
 
     payload = {
         "contents": [
             {
                 "parts": [
-                    {"text": prompt}
+                    {"text": text.strip()}
                 ]
             }
         ],
+        "systemInstruction": {
+            "parts": [
+                {
+                    "text": (
+                        "You are a professional instant translator from Arabic to English. "
+                        "Translate the given Arabic text accurately into clean, natural modern English. "
+                        "Preserve emojis, acronyms, and technical terms. "
+                        "Output ONLY the raw English translation. "
+                        "Do not include quotes, notes, pronunciation, or explanations."
+                    )
+                }
+            ]
+        },
         "generationConfig": {
-            "temperature": 0.2,
+            "temperature": 0.1,
             "maxOutputTokens": 1000
         }
     }
 
-    models = ["gemini-1.5-flash", "gemini-2.0-flash"]
+    models = [
+        "gemini-3.6-flash",
+        "gemini-3.7-flash",
+        "gemini-3.8-flash",
+        "gemini-3.5-flash",
+        "gemini-2.5-flash",
+        "gemini-flash-latest",
+    ]
     for model in models:
         try:
             url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
@@ -83,7 +96,7 @@ def translate_with_gemini(text: str, api_key: str) -> str | None:
                 headers={"Content-Type": "application/json"},
                 method="POST"
             )
-            with urllib.request.urlopen(req, timeout=8) as resp:
+            with urllib.request.urlopen(req, timeout=10) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 candidates = data.get("candidates", [])
                 if candidates:
@@ -93,6 +106,10 @@ def translate_with_gemini(text: str, api_key: str) -> str | None:
                         if res:
                             logger.info(f"✨ تمت الترجمة بنجاح عبر Gemini ({model})")
                             return res
+        except urllib.error.HTTPError as e:
+            err_msg = e.read().decode("utf-8", errors="ignore") if hasattr(e, "read") else str(e)
+            logger.debug(f"⚠️ [Gemini {model}] HTTP {e.code}: {err_msg[:120]}")
+            continue
         except Exception as e:
             logger.debug(f"⚠️ [Gemini {model}] خطأ: {e}")
             continue
@@ -458,7 +475,7 @@ def _render_gemini_settings_text() -> str:
         "✨ <b>إعدادات محرك الترجمة الذكي (Google Gemini AI)</b>\n"
         "━━━━━━━━━━━━━━━━━━━━\n"
         f"🔑 <b>حالة المفتاح:</b> {status}\n"
-        "🧠 <b>الموديلات المدعومة:</b> gemini-1.5-flash / gemini-2.0-flash\n\n"
+        "🧠 <b>الموديل الفعّال:</b> gemini-3.6-flash ✨\n\n"
         "💡 <b>المزايا:</b>\n"
         "• ترجمة سياقية ذكية للمصطلحات الأكاديمية والجامعية.\n"
         "• الحفاظ على الإيموجيات وتنسيق الرسائل بدقة تامة.\n"
@@ -1069,6 +1086,8 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         )
         return
 
+    logger.info(f"📩 رسالة مستلمة في شات {chat.id} ({chat.type}, توبيك: {msg.message_thread_id}): {text[:50]}")
+
     # ── 3. ميزة الترجمة التلقائية ────────────────────────────────
     translate_enabled = db.get_setting("translate_enabled", "1")
     if translate_enabled == "1":
@@ -1076,9 +1095,9 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         is_private = chat and chat.type == "private"
 
         # في المجموعات: فحص مطابقة رقم الموضوع (Topic)
+        current_thread_id = getattr(msg, "message_thread_id", None)
         if not is_private:
             configured_topic = db.get_setting("translate_topic_id", "0")
-            current_thread_id = msg.message_thread_id
 
             # إذا حُدد موضوع معين (وليس 0 للكل) ولم تتطابق الرسالة معه، نتجاهلها
             if configured_topic and configured_topic != "0":
@@ -1087,16 +1106,22 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
                 except ValueError:
                     target_thread_id = None
                 if target_thread_id is not None and current_thread_id != target_thread_id:
+                    logger.debug(f"تخطي الترجمة: توبك الرسالة ({current_thread_id}) ليس التوبك المضبوط ({target_thread_id})")
                     return
 
-        # التحقق من احتواء النص على حروف عربية
+        # تنظيف منشن البوت إن وُجد (مثلاً: @bot ترجمة)
         import re
-        if not re.search(r"[\u0600-\u06FF]", text):
+        clean_text = re.sub(r"@\w+_bot\b", "", text, flags=re.IGNORECASE).strip()
+        if not clean_text:
+            return
+
+        # التحقق من احتواء النص على حروف عربية
+        if not re.search(r"[\u0600-\u06FF]", clean_text):
             return
 
         # ترجمة النص إلى الإنجليزية
-        translated = translate_ar_to_en(text)
-        if not translated or translated.strip().lower() == text.strip().lower():
+        translated = translate_ar_to_en(clean_text)
+        if not translated or translated.strip().lower() == clean_text.strip().lower():
             # إذا تعذرت الترجمة أو لم يتغير النص، لا نكرر النص العربي في الشات
             return
 
@@ -1105,11 +1130,23 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
         try:
             await msg.reply_text(
                 reply_text,
+                message_thread_id=current_thread_id,
+                allow_sending_without_reply=True,
                 disable_web_page_preview=True,
             )
-            logger.info(f"✅ تمت الترجمة بنجاح ({text} -> {translated}) للمستخدم {user.id if user else 0}")
+            logger.info(f"✅ تمت الترجمة بنجاح ({clean_text} -> {translated}) في شات {chat.id} (توبيك {current_thread_id})")
         except Exception as e:
-            logger.error(f"❌ خطأ أثناء إرسال رد الترجمة: {e}")
+            logger.warning(f"⚠️ تعذر reply_text: {e}، محاولة الإرسال كرسالة جديدة في التوبك...")
+            try:
+                await context.bot.send_message(
+                    chat_id=chat.id,
+                    message_thread_id=current_thread_id,
+                    text=reply_text,
+                    disable_web_page_preview=True,
+                )
+                logger.info(f"✅ تم إرسال الترجمة بنجاح عبر send_message في شات {chat.id}")
+            except Exception as e2:
+                logger.error(f"❌ فشل إرسال الترجمة في المجموعة: {e2}")
 
 
 # ══════════════════════════════════════════════════════════════
