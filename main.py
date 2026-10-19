@@ -44,6 +44,15 @@ from handlers import (
     cmd_day,
     cmd_next,
     cmd_tomorrow,
+    cmd_schedule_en,
+    cmd_schedule_ar,
+    cmd_tomorrow_en,
+    cmd_tomorrow_ar,
+    cmd_full_schedule_en,
+    cmd_full_schedule_ar,
+    cmd_next_en,
+    cmd_next_ar,
+    cmd_switch_lang,
     cmd_translate,
     cmd_stats,
     cmd_set_topic,
@@ -180,13 +189,22 @@ async def on_shutdown(application: Application) -> None:
 def register_handlers(app: Application) -> None:
     # ── أوامر المستخدمين والطلاب ─────────────────────────────────
     app.add_handler(CommandHandler("start",          cmd_start))
+    app.add_handler(CommandHandler(["lang", "language"], cmd_switch_lang))
     app.add_handler(CommandHandler("schedule",       cmd_schedule))
     app.add_handler(CommandHandler("today",          cmd_schedule))
+    app.add_handler(CommandHandler(["schedule_en", "today_en"], cmd_schedule_en))
+    app.add_handler(CommandHandler(["schedule_ar", "today_ar"], cmd_schedule_ar))
     app.add_handler(CommandHandler("day",            cmd_day))
     app.add_handler(CommandHandler("fullschedule",   cmd_full_schedule))
     app.add_handler(CommandHandler("week",           cmd_full_schedule))
+    app.add_handler(CommandHandler(["fullschedule_en", "week_en"], cmd_full_schedule_en))
+    app.add_handler(CommandHandler(["fullschedule_ar", "week_ar"], cmd_full_schedule_ar))
     app.add_handler(CommandHandler("next",           cmd_next))
+    app.add_handler(CommandHandler("next_en",        cmd_next_en))
+    app.add_handler(CommandHandler("next_ar",        cmd_next_ar))
     app.add_handler(CommandHandler("tomorrow",       cmd_tomorrow))
+    app.add_handler(CommandHandler("tomorrow_en",    cmd_tomorrow_en))
+    app.add_handler(CommandHandler("tomorrow_ar",    cmd_tomorrow_ar))
     app.add_handler(CommandHandler(["tr", "trad", "translate"], cmd_translate))
     app.add_handler(CommandHandler("stats",          cmd_stats))
 

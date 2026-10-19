@@ -6,7 +6,7 @@ import os
 import tempfile
 from datetime import datetime
 
-from telegram import Update, Message
+from telegram import Update, Message, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
@@ -24,6 +24,7 @@ from keyboards import (
     day_schedule_keyboard,
     week_overview_keyboard,
     next_session_keyboard,
+    language_select_keyboard,
     settings_menu_keyboard,
     translate_settings_keyboard,
     schedule_topic_settings_keyboard,
@@ -36,6 +37,8 @@ from schedule_formatter import (
     get_today_name,
     get_tomorrow_name,
     get_current_datetime,
+    to_day_en,
+    to_day_ar,
     STUDY_DAYS,
 )
 from pdf_parser import parse_schedule_pdf
@@ -237,6 +240,39 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
 
     # تسجيل العضو تلقائياً
     db.upsert_member(user.id, user.username, user.full_name or name)
+    user_lang = db.get_user_lang(user.id)
+
+    if user_lang == "en":
+        if is_admin(user.id):
+            await update.message.reply_text(
+                f"👋 Welcome <b>{name}</b>!\n\n"
+                "🤖 <b>Study Schedule & Smart Assistant Bot</b>\n\n"
+                "📌 <b>Schedule Commands:</b>\n"
+                "• /schedule or /today — Interactive Today's Schedule\n"
+                "• /tomorrow — Tomorrow's Schedule\n"
+                "• /next — Next & Ongoing Session\n"
+                "• /week or /fullschedule — Full Weekly Schedule\n"
+                "• /day <i>[day]</i> — Custom Day Schedule (e.g. <code>/day Sunday</code>)\n"
+                "• /lang — Switch Interface Language (English / عربي)\n\n"
+                "⚙️ Admin Panel: /panel\n"
+                "📄 You can also upload a PDF file to update the schedule automatically.",
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await update.message.reply_text(
+                f"👋 Welcome <b>{name}</b>!\n\n"
+                "📅 <b>Study Schedule Tracker Bot</b>\n\n"
+                "📌 <b>Schedule Commands:</b>\n"
+                "• /schedule or /today — Interactive Today's Schedule\n"
+                "• /tomorrow — Tomorrow's Schedule\n"
+                "• /next — Next & Ongoing Session\n"
+                "• /week — Full Weekly Schedule\n"
+                "• /day <i>[day]</i> — Custom Day Schedule (e.g. <code>/day Sunday</code>)\n"
+                "• /lang — Switch Interface Language (English / عربي)\n\n"
+                "⏰ Automatic reminders are sent 15 minutes before every class in the group.",
+                parse_mode=ParseMode.HTML,
+            )
+        return
 
     if is_admin(user.id):
         await update.message.reply_text(
@@ -247,7 +283,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "• /tomorrow — جدول الغد\n"
             "• /next — الحصة القادمة والجارية الآن\n"
             "• /week أو /fullschedule — الجدول الأسبوعي الكامل\n"
-            "• /day <i>[اليوم]</i> — جدول يوم مخصص (مثال: <code>/day الأحد</code>)\n\n"
+            "• /day <i>[اليوم]</i> — جدول يوم مخصص (مثال: <code>/day الأحد</code>)\n"
+            "• /lang — تغيير لغة الواجهة (عربي / English)\n\n"
             "⚙️ لوحة المشرف: /panel\n"
             "📄 يمكنك أيضاً إرسال ملف PDF لتحديث الجدول تلقائياً.",
             parse_mode=ParseMode.HTML,
@@ -261,7 +298,8 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
             "• /tomorrow — جدول الغد\n"
             "• /next — الحصة القادمة والجارية الآن\n"
             "• /week — الجدول الأسبوعي الكامل\n"
-            "• /day <i>[اليوم]</i> — جدول يوم محدد (مثال: <code>/day الأحد</code>)\n\n"
+            "• /day <i>[اليوم]</i> — جدول يوم محدد (مثال: <code>/day الأحد</code>)\n"
+            "• /lang — تغيير لغة الواجهة (عربي / English)\n\n"
             "⏰ ستصلك تنبيهات تلقائية قبل بداية كل حصة بـ 15 دقيقة في المجموعة.",
             parse_mode=ParseMode.HTML,
         )
@@ -277,56 +315,73 @@ async def cmd_panel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
-async def cmd_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """عرض جدول اليوم للجميع بتصميم بطاقة حديث وتفاعلي."""
+async def cmd_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str | None = None) -> None:
+    """عرض جدول اليوم للجميع بتصميم بطاقة حديث وتفاعلي مع دعم اللغتين."""
+    user = update.effective_user
+    if lang is None:
+        lang = db.get_user_lang(user.id) if user else "ar"
     today_ar = get_today_name()
     sessions = db.get_sessions_by_day(today_ar)
-    text = format_day_schedule(today_ar, sessions, is_today=True)
-    keyboard = day_schedule_keyboard(today_ar)
+    text = format_day_schedule(today_ar, sessions, is_today=True, lang=lang)
+    keyboard = day_schedule_keyboard(today_ar, lang=lang)
     await update.effective_message.reply_text(
         text, parse_mode=ParseMode.HTML, reply_markup=keyboard
     )
 
 
-async def cmd_full_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """عرض لوحة ملخص الجدول الأسبوعي الكامل مع أزرار تصفح الأيام."""
+async def cmd_full_schedule(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str | None = None) -> None:
+    """عرض لوحة ملخص الجدول الأسبوعي الكامل مع أزرار تصفح الأيام مع دعم اللغتين."""
+    user = update.effective_user
+    if lang is None:
+        lang = db.get_user_lang(user.id) if user else "ar"
     sessions = db.get_all_sessions(include_cancelled=True)
     if not sessions:
-        await update.effective_message.reply_text("📭 لا توجد حصص محفوظة في قاعدة البيانات.")
+        empty_msg = "📭 No sessions found in the database." if lang == "en" else "📭 لا توجد حصص محفوظة في قاعدة البيانات."
+        await update.effective_message.reply_text(empty_msg)
         return
 
-    text = format_week_overview(sessions)
-    keyboard = week_overview_keyboard()
+    text = format_week_overview(sessions, lang=lang)
+    keyboard = week_overview_keyboard(lang=lang)
     await update.effective_message.reply_text(
         text, parse_mode=ParseMode.HTML, reply_markup=keyboard
     )
 
 
-async def cmd_day(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """عرض جدول يوم محدد: /day الأحد أو /day tue"""
+async def cmd_day(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str | None = None) -> None:
+    """عرض جدول يوم محدد: /day الأحد أو /day tue مع دعم اللغتين."""
+    user = update.effective_user
+    if lang is None:
+        lang = db.get_user_lang(user.id) if user else "ar"
+
     if not context.args:
         today_ar = get_today_name()
         sessions = db.get_sessions_by_day(today_ar)
-        text = format_day_schedule(today_ar, sessions, is_today=True)
-        keyboard = day_schedule_keyboard(today_ar)
+        text = format_day_schedule(today_ar, sessions, is_today=True, lang=lang)
+        keyboard = day_schedule_keyboard(today_ar, lang=lang)
         await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
         return
 
     raw_query = " ".join(context.args).strip().lower()
     day_ar = DAY_MAP.get(raw_query)
     if not day_ar:
-        await update.effective_message.reply_text(
-            "❌ اسم اليوم غير معروف.\n"
-            "أمثلة: <code>/day الأحد</code> ، <code>/day الاثنين</code> ، <code>/day tue</code>",
-            parse_mode=ParseMode.HTML
-        )
+        if lang == "en":
+            err_msg = (
+                "❌ Unknown day name.\n"
+                "Examples: <code>/day Sunday</code>, <code>/day Monday</code>, <code>/day tue</code>"
+            )
+        else:
+            err_msg = (
+                "❌ اسم اليوم غير معروف.\n"
+                "أمثلة: <code>/day الأحد</code> ، <code>/day الاثنين</code> ، <code>/day tue</code>"
+            )
+        await update.effective_message.reply_text(err_msg, parse_mode=ParseMode.HTML)
         return
 
     today_ar = get_today_name()
     is_today = (day_ar == today_ar)
     sessions = db.get_sessions_by_day(day_ar)
-    text = format_day_schedule(day_ar, sessions, is_today=is_today)
-    keyboard = day_schedule_keyboard(day_ar)
+    text = format_day_schedule(day_ar, sessions, is_today=is_today, lang=lang)
+    keyboard = day_schedule_keyboard(day_ar, lang=lang)
     await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
 
@@ -533,49 +588,180 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     data = query.data
 
     # ── أزرار عامة متاحة لجميع الطلاب لتصفح الجداول التفاعلية ────────
-    if data == "btn:today":
+    if data.startswith("ui_lang:"):
+        tokens = data.split(":")
+        target_lang = tokens[1]
+        db.set_user_lang(query.from_user.id, target_lang)
+
+        toast = "🇬🇧 Switched to English!" if target_lang == "en" else "🇸🇦 تم التبديل إلى العربية!"
+        try:
+            await query.answer(toast)
+        except Exception:
+            pass
+
+        view_type = tokens[-1]
+        if view_type == "day":
+            raw_day = tokens[2] if len(tokens) >= 4 else get_today_name()
+            day = DAY_MAP.get(raw_day.lower(), raw_day)
+            today_ar = get_today_name()
+            is_today = (day == today_ar)
+            sessions = db.get_sessions_by_day(day)
+            text = format_day_schedule(day, sessions, is_today=is_today, lang=target_lang)
+            keyboard = day_schedule_keyboard(day, lang=target_lang)
+            try:
+                await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+            except Exception:
+                pass
+        elif view_type == "week":
+            sessions = db.get_all_sessions(include_cancelled=True)
+            text = format_week_overview(sessions, lang=target_lang)
+            keyboard = week_overview_keyboard(lang=target_lang)
+            try:
+                await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+            except Exception:
+                pass
+        elif view_type == "next":
+            now = get_current_datetime()
+            today_ar = get_today_name()
+            sessions = db.get_sessions_by_day(today_ar)
+            current_time_str = now.strftime("%H:%M")
+            current_running = None
+            upcoming = []
+            for s in sessions:
+                if s["start_time"] <= current_time_str <= s["end_time"]:
+                    current_running = s
+                elif s["start_time"] > current_time_str:
+                    upcoming.append(s)
+            tomorrow_ar = get_tomorrow_name()
+            tomorrow_sessions = db.get_sessions_by_day(tomorrow_ar)
+            tomorrow_first = tomorrow_sessions[0] if tomorrow_sessions else None
+
+            text = format_next_card(current_running, upcoming, tomorrow_first, today_ar, lang=target_lang)
+            keyboard = next_session_keyboard(lang=target_lang)
+            try:
+                await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+            except Exception:
+                pass
+        return
+
+    elif data.startswith("set_lang:"):
+        chosen_lang = data.split(":")[1]
+        db.set_user_lang(query.from_user.id, chosen_lang)
+        if chosen_lang == "en":
+            msg = (
+                "✅ <b>Interface language set to English!</b> 🇬🇧\n\n"
+                "All schedule cards and buttons will now be presented in English.\n"
+                "You can switch back anytime using /lang or the button on any schedule card."
+            )
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("📅 Today's Schedule", callback_data="btn:today:en"),
+                    InlineKeyboardButton("📋 Week Overview", callback_data="btn:week:en"),
+                ],
+                [
+                    InlineKeyboardButton("⏭️ Next Session", callback_data="btn:next:en"),
+                    InlineKeyboardButton("🇸🇦 الواجهة العربية", callback_data="ui_lang:ar:next"),
+                ]
+            ])
+        else:
+            msg = (
+                "✅ <b>تم ضبط لغة الواجهة إلى العربية!</b> 🇸🇦\n\n"
+                "ستظهر الآن كافة الجداول وأزرار التصفح باللغة العربية.\n"
+                "يمكنك التبديل في أي وقت باستخدام /lang أو الزر الموجود أسفل البطاقات."
+            )
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("📅 جدول اليوم", callback_data="btn:today:ar"),
+                    InlineKeyboardButton("📋 ملخص الأسبوع", callback_data="btn:week:ar"),
+                ],
+                [
+                    InlineKeyboardButton("⏭️ الحصة القادمة", callback_data="btn:next:ar"),
+                    InlineKeyboardButton("🇬🇧 English Interface", callback_data="ui_lang:en:next"),
+                ]
+            ])
+        try:
+            await query.answer("✅")
+            await query.edit_message_text(msg, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+        except Exception:
+            pass
+        return
+
+    elif data.startswith("btn:today"):
+        parts = data.split(":")
+        lang = parts[2] if len(parts) > 2 else db.get_user_lang(query.from_user.id)
         today_ar = get_today_name()
         sessions = db.get_sessions_by_day(today_ar)
-        text = format_day_schedule(today_ar, sessions, is_today=True)
-        keyboard = day_schedule_keyboard(today_ar)
+        text = format_day_schedule(today_ar, sessions, is_today=True, lang=lang)
+        keyboard = day_schedule_keyboard(today_ar, lang=lang)
         try:
             await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
         except Exception:
             await query.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
         return
 
-    elif data == "btn:tomorrow":
+    elif data.startswith("btn:tomorrow"):
+        parts = data.split(":")
+        lang = parts[2] if len(parts) > 2 else db.get_user_lang(query.from_user.id)
         tomorrow_ar = get_tomorrow_name()
         sessions = db.get_sessions_by_day(tomorrow_ar)
-        text = format_day_schedule(tomorrow_ar, sessions, is_today=False)
-        keyboard = day_schedule_keyboard(tomorrow_ar)
+        text = format_day_schedule(tomorrow_ar, sessions, is_today=False, lang=lang)
+        keyboard = day_schedule_keyboard(tomorrow_ar, lang=lang)
         try:
             await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
         except Exception:
             await query.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
         return
 
-    elif data == "btn:week":
+    elif data.startswith("btn:week"):
+        parts = data.split(":")
+        lang = parts[2] if len(parts) > 2 else db.get_user_lang(query.from_user.id)
         sessions = db.get_all_sessions(include_cancelled=True)
-        text = format_week_overview(sessions)
-        keyboard = week_overview_keyboard()
+        text = format_week_overview(sessions, lang=lang)
+        keyboard = week_overview_keyboard(lang=lang)
         try:
             await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
         except Exception:
             await query.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
         return
 
-    elif data == "btn:next":
-        await cmd_next(update, context)
+    elif data.startswith("btn:next"):
+        parts = data.split(":")
+        lang = parts[2] if len(parts) > 2 else db.get_user_lang(query.from_user.id)
+        now = get_current_datetime()
+        today_ar = get_today_name()
+        sessions = db.get_sessions_by_day(today_ar)
+        current_time_str = now.strftime("%H:%M")
+
+        current_running = None
+        upcoming = []
+        for s in sessions:
+            if s["start_time"] <= current_time_str <= s["end_time"]:
+                current_running = s
+            elif s["start_time"] > current_time_str:
+                upcoming.append(s)
+
+        tomorrow_ar = get_tomorrow_name()
+        tomorrow_sessions = db.get_sessions_by_day(tomorrow_ar)
+        tomorrow_first = tomorrow_sessions[0] if tomorrow_sessions else None
+
+        text = format_next_card(current_running, upcoming, tomorrow_first, today_ar, lang=lang)
+        keyboard = next_session_keyboard(lang=lang)
+        try:
+            await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+        except Exception:
+            await query.message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
         return
 
     elif data.startswith("view_day:"):
-        day = data.split(":", 1)[1]
+        parts = data.split(":")
+        raw_day = parts[1]
+        day = DAY_MAP.get(raw_day.lower(), raw_day)
+        lang = parts[2] if len(parts) > 2 else db.get_user_lang(query.from_user.id)
         today_ar = get_today_name()
         is_today = (day == today_ar)
         sessions = db.get_sessions_by_day(day)
-        text = format_day_schedule(day, sessions, is_today=is_today)
-        keyboard = day_schedule_keyboard(day)
+        text = format_day_schedule(day, sessions, is_today=is_today, lang=lang)
+        keyboard = day_schedule_keyboard(day, lang=lang)
         try:
             await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
         except Exception as e:
@@ -1300,8 +1486,11 @@ def _tomorrow_arabic() -> str:
 #  أوامر متقدمة إضافية (Next, Tomorrow, Topics, Control)
 # ══════════════════════════════════════════════════════════════
 
-async def cmd_next(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """معرفة الحصة القادمة والجارية الآن بناءً على التوقيت المحلي بدقة."""
+async def cmd_next(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str | None = None) -> None:
+    """معرفة الحصة القادمة والجارية الآن بناءً على التوقيت المحلي بدقة مع دعم اللغتين."""
+    user = update.effective_user
+    if lang is None:
+        lang = db.get_user_lang(user.id) if user else "ar"
     now = get_current_datetime()
     today_ar = get_today_name()
     sessions = db.get_sessions_by_day(today_ar)
@@ -1320,18 +1509,82 @@ async def cmd_next(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     tomorrow_sessions = db.get_sessions_by_day(tomorrow_ar)
     tomorrow_first = tomorrow_sessions[0] if tomorrow_sessions else None
 
-    text = format_next_card(current_running, upcoming, tomorrow_first, today_ar)
-    keyboard = next_session_keyboard()
+    text = format_next_card(current_running, upcoming, tomorrow_first, today_ar, lang=lang)
+    keyboard = next_session_keyboard(lang=lang)
     await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
 
 
-async def cmd_tomorrow(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """عرض جدول الغد بتصميم حديث وتفاعلي."""
+async def cmd_tomorrow(update: Update, context: ContextTypes.DEFAULT_TYPE, lang: str | None = None) -> None:
+    """عرض جدول الغد بتصميم حديث وتفاعلي مع دعم اللغتين."""
+    user = update.effective_user
+    if lang is None:
+        lang = db.get_user_lang(user.id) if user else "ar"
     tomorrow_ar = get_tomorrow_name()
     sessions = db.get_sessions_by_day(tomorrow_ar)
-    text = format_day_schedule(tomorrow_ar, sessions, is_today=False)
-    keyboard = day_schedule_keyboard(tomorrow_ar)
+    text = format_day_schedule(tomorrow_ar, sessions, is_today=False, lang=lang)
+    keyboard = day_schedule_keyboard(tomorrow_ar, lang=lang)
     await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=keyboard)
+
+
+# ── أوامر سريعة محددة للغة الإنجليزية والعربية مباشرة ────────────
+async def cmd_schedule_en(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """عرض جدول اليوم باللغة الإنجليزية مباشرة: /schedule_en أو /today_en"""
+    await cmd_schedule(update, context, lang="en")
+
+
+async def cmd_schedule_ar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """عرض جدول اليوم باللغة العربية مباشرة: /schedule_ar أو /today_ar"""
+    await cmd_schedule(update, context, lang="ar")
+
+
+async def cmd_tomorrow_en(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """عرض جدول الغد باللغة الإنجليزية مباشرة: /tomorrow_en"""
+    await cmd_tomorrow(update, context, lang="en")
+
+
+async def cmd_tomorrow_ar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """عرض جدول الغد باللغة العربية مباشرة: /tomorrow_ar"""
+    await cmd_tomorrow(update, context, lang="ar")
+
+
+async def cmd_full_schedule_en(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """عرض الجدول الأسبوعي باللغة الإنجليزية مباشرة: /week_en أو /fullschedule_en"""
+    await cmd_full_schedule(update, context, lang="en")
+
+
+async def cmd_full_schedule_ar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """عرض الجدول الأسبوعي باللغة العربية مباشرة: /week_ar أو /fullschedule_ar"""
+    await cmd_full_schedule(update, context, lang="ar")
+
+
+async def cmd_next_en(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """عرض بطاقة الحصة القادمة باللغة الإنجليزية مباشرة: /next_en"""
+    await cmd_next(update, context, lang="en")
+
+
+async def cmd_next_ar(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """عرض بطاقة الحصة القادمة باللغة العربية مباشرة: /next_ar"""
+    await cmd_next(update, context, lang="ar")
+
+
+async def cmd_switch_lang(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """أمر تبديل لغة الواجهة: /lang أو /language"""
+    user = update.effective_user
+    current_lang = db.get_user_lang(user.id) if user else "ar"
+    current_desc = "🇬🇧 English" if current_lang == "en" else "🇸🇦 العربية"
+
+    text = (
+        "🌐 <b>اختيار لغة واجهة البوت / Select Bot Interface Language</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"📌 اللغة الحالية / Current: <b>{current_desc}</b>\n\n"
+        "اختر لغة الواجهة التي تفضل ظهور الجداول والأزرار بها:\n"
+        "Choose your preferred interface language below:"
+    )
+    await update.effective_message.reply_text(
+        text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=language_select_keyboard(),
+    )
 
 
 async def cmd_set_topic(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:

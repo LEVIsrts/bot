@@ -288,3 +288,16 @@ def set_setting(key: str, value: str) -> None:
                ON CONFLICT(key) DO UPDATE SET value=excluded.value""",
             (key, value),
         )
+
+
+def get_user_lang(user_id: int) -> str:
+    """الحصول على لغة واجهة المستخدم المفضلة ('ar' أو 'en'). الافتراضي هو 'ar'."""
+    lang = get_setting(f"user_lang:{user_id}", "ar")
+    return lang if lang in ("ar", "en") else "ar"
+
+
+def set_user_lang(user_id: int, lang: str) -> None:
+    """حفظ لغة واجهة المستخدم المفضلة ('ar' أو 'en')."""
+    if lang in ("ar", "en"):
+        set_setting(f"user_lang:{user_id}", lang)
+

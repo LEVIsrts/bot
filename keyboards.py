@@ -187,59 +187,154 @@ def confirm_keyboard(action: str, target_id: int) -> InlineKeyboardMarkup:
 
 SCHEDULE_STUDY_DAYS = ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس"]
 
+DAYS_EN_NAMES = {
+    "الأحد": "Sunday",
+    "الاثنين": "Monday",
+    "الثلاثاء": "Tuesday",
+    "الأربعاء": "Wednesday",
+    "الخميس": "Thursday",
+}
 
-def day_schedule_keyboard(current_day: str) -> InlineKeyboardMarkup:
-    """أزرار تصفح جدول يوم معين مع تمييز اليوم الحالي والتنقل السريع."""
+DAYS_REVERSE_NAMES = {v.lower(): k for k, v in DAYS_EN_NAMES.items()}
+
+
+def _normalize_day_ar(day_str: str) -> str:
+    cleaned = day_str.strip()
+    return DAYS_REVERSE_NAMES.get(cleaned.lower(), cleaned)
+
+
+def day_schedule_keyboard(current_day: str, lang: str = "ar") -> InlineKeyboardMarkup:
+    """أزرار تصفح جدول يوم معين مع تمييز اليوم الحالي والتنقل السريع ودعم اللغتين العربية والإنجليزية."""
+    is_en = (lang == "en")
+    curr_ar = _normalize_day_ar(current_day)
     day_row1 = []
     day_row2 = []
+
     for i, day in enumerate(SCHEDULE_STUDY_DAYS):
-        label = f"📍 {day}" if day == current_day else day
-        cb_data = f"view_day:{day}"
+        if is_en:
+            day_name = DAYS_EN_NAMES.get(day, day)
+            label = f"📍 {day_name}" if day == curr_ar else day_name
+            cb_data = f"view_day:{day}:en"
+        else:
+            label = f"📍 {day}" if day == curr_ar else day
+            cb_data = f"view_day:{day}:ar"
+
         if i < 3:
             day_row1.append(InlineKeyboardButton(label, callback_data=cb_data))
         else:
             day_row2.append(InlineKeyboardButton(label, callback_data=cb_data))
 
-    action_row = [
-        InlineKeyboardButton("🔄 تحديث", callback_data=f"view_day:{current_day}"),
-        InlineKeyboardButton("🌅 الغد", callback_data="btn:tomorrow"),
-        InlineKeyboardButton("📋 الأسبوع", callback_data="btn:week"),
-    ]
-    quick_row = [
-        InlineKeyboardButton("⏭️ الحصة القادمة", callback_data="btn:next"),
-        InlineKeyboardButton("📅 جدول اليوم", callback_data="btn:today"),
-    ]
-    return InlineKeyboardMarkup([day_row1, day_row2, action_row, quick_row])
+    if is_en:
+        action_row = [
+            InlineKeyboardButton("🔄 Refresh", callback_data=f"view_day:{curr_ar}:en"),
+            InlineKeyboardButton("🌅 Tomorrow", callback_data="btn:tomorrow:en"),
+            InlineKeyboardButton("📋 Week", callback_data="btn:week:en"),
+        ]
+        quick_row = [
+            InlineKeyboardButton("⏭️ Next Session", callback_data="btn:next:en"),
+            InlineKeyboardButton("📅 Today", callback_data="btn:today:en"),
+        ]
+        lang_row = [
+            InlineKeyboardButton("🇸🇦 الواجهة العربية", callback_data=f"ui_lang:ar:{curr_ar}:day"),
+        ]
+    else:
+        action_row = [
+            InlineKeyboardButton("🔄 تحديث", callback_data=f"view_day:{curr_ar}:ar"),
+            InlineKeyboardButton("🌅 الغد", callback_data="btn:tomorrow:ar"),
+            InlineKeyboardButton("📋 الأسبوع", callback_data="btn:week:ar"),
+        ]
+        quick_row = [
+            InlineKeyboardButton("⏭️ الحصة القادمة", callback_data="btn:next:ar"),
+            InlineKeyboardButton("📅 جدول اليوم", callback_data="btn:today:ar"),
+        ]
+        lang_row = [
+            InlineKeyboardButton("🇬🇧 English Interface", callback_data=f"ui_lang:en:{curr_ar}:day"),
+        ]
+
+    return InlineKeyboardMarkup([day_row1, day_row2, action_row, quick_row, lang_row])
 
 
-def week_overview_keyboard() -> InlineKeyboardMarkup:
-    """أزرار لوحة التحكم الأسبوعية لفتح تفاصيل أي يوم."""
-    day_row1 = [
-        InlineKeyboardButton("الأحد", callback_data="view_day:الأحد"),
-        InlineKeyboardButton("الاثنين", callback_data="view_day:الاثنين"),
-        InlineKeyboardButton("الثلاثاء", callback_data="view_day:الثلاثاء"),
-    ]
-    day_row2 = [
-        InlineKeyboardButton("الأربعاء", callback_data="view_day:الأربعاء"),
-        InlineKeyboardButton("الخميس", callback_data="view_day:الخميس"),
-    ]
-    action_row = [
-        InlineKeyboardButton("📅 جدول اليوم", callback_data="btn:today"),
-        InlineKeyboardButton("⏭️ الحصة القادمة", callback_data="btn:next"),
-    ]
-    return InlineKeyboardMarkup([day_row1, day_row2, action_row])
+def week_overview_keyboard(lang: str = "ar") -> InlineKeyboardMarkup:
+    """أزرار لوحة التحكم الأسبوعية لفتح تفاصيل أي يوم مع دعم اللغتين."""
+    is_en = (lang == "en")
+    if is_en:
+        day_row1 = [
+            InlineKeyboardButton("Sunday", callback_data="view_day:الأحد:en"),
+            InlineKeyboardButton("Monday", callback_data="view_day:الاثنين:en"),
+            InlineKeyboardButton("Tuesday", callback_data="view_day:الثلاثاء:en"),
+        ]
+        day_row2 = [
+            InlineKeyboardButton("Wednesday", callback_data="view_day:الأربعاء:en"),
+            InlineKeyboardButton("Thursday", callback_data="view_day:الخميس:en"),
+        ]
+        action_row = [
+            InlineKeyboardButton("📅 Today's Schedule", callback_data="btn:today:en"),
+            InlineKeyboardButton("⏭️ Next Session", callback_data="btn:next:en"),
+        ]
+        lang_row = [
+            InlineKeyboardButton("🇸🇦 الواجهة العربية", callback_data="ui_lang:ar:week"),
+        ]
+    else:
+        day_row1 = [
+            InlineKeyboardButton("الأحد", callback_data="view_day:الأحد:ar"),
+            InlineKeyboardButton("الاثنين", callback_data="view_day:الاثنين:ar"),
+            InlineKeyboardButton("الثلاثاء", callback_data="view_day:الثلاثاء:ar"),
+        ]
+        day_row2 = [
+            InlineKeyboardButton("الأربعاء", callback_data="view_day:الأربعاء:ar"),
+            InlineKeyboardButton("الخميس", callback_data="view_day:الخميس:ar"),
+        ]
+        action_row = [
+            InlineKeyboardButton("📅 جدول اليوم", callback_data="btn:today:ar"),
+            InlineKeyboardButton("⏭️ الحصة القادمة", callback_data="btn:next:ar"),
+        ]
+        lang_row = [
+            InlineKeyboardButton("🇬🇧 English Interface", callback_data="ui_lang:en:week"),
+        ]
+
+    return InlineKeyboardMarkup([day_row1, day_row2, action_row, lang_row])
 
 
-def next_session_keyboard() -> InlineKeyboardMarkup:
-    """أزرار بطاقة الحصة القادمة والجارية."""
+def next_session_keyboard(lang: str = "ar") -> InlineKeyboardMarkup:
+    """أزرار بطاقة الحصة القادمة والجارية مع زر تبديل اللغة الفوري."""
+    is_en = (lang == "en")
+    if is_en:
+        return InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("📅 Today's Schedule", callback_data="btn:today:en"),
+                InlineKeyboardButton("🌅 Tomorrow", callback_data="btn:tomorrow:en"),
+            ],
+            [
+                InlineKeyboardButton("📋 Week Overview", callback_data="btn:week:en"),
+                InlineKeyboardButton("🔄 Refresh Time", callback_data="btn:next:en"),
+            ],
+            [
+                InlineKeyboardButton("🇸🇦 الواجهة العربية", callback_data="ui_lang:ar:next"),
+            ]
+        ])
+    else:
+        return InlineKeyboardMarkup([
+            [
+                InlineKeyboardButton("📅 جدول اليوم", callback_data="btn:today:ar"),
+                InlineKeyboardButton("🌅 جدول الغد", callback_data="btn:tomorrow:ar"),
+            ],
+            [
+                InlineKeyboardButton("📋 ملخص الأسبوع", callback_data="btn:week:ar"),
+                InlineKeyboardButton("🔄 تحديث الوقت", callback_data="btn:next:ar"),
+            ],
+            [
+                InlineKeyboardButton("🇬🇧 English Interface", callback_data="ui_lang:en:next"),
+            ]
+        ])
+
+
+def language_select_keyboard() -> InlineKeyboardMarkup:
+    """لوحة اختيار لغة الواجهة الأساسية للبوت."""
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("📅 جدول اليوم", callback_data="btn:today"),
-            InlineKeyboardButton("🌅 جدول الغد", callback_data="btn:tomorrow"),
-        ],
-        [
-            InlineKeyboardButton("📋 ملخص الأسبوع", callback_data="btn:week"),
-            InlineKeyboardButton("🔄 تحديث الوقت", callback_data="btn:next"),
+            InlineKeyboardButton("🇸🇦 العربية (Arabic)", callback_data="set_lang:ar"),
+            InlineKeyboardButton("🇬🇧 English (الإنجليزية)", callback_data="set_lang:en"),
         ]
     ])
+
 
