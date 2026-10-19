@@ -24,11 +24,44 @@ def admin_main_menu() -> InlineKeyboardMarkup:
 
 
 def settings_menu_keyboard() -> InlineKeyboardMarkup:
+    """لوحة الإعدادات الرئيسية التي تتضمن إعدادات توبيك الترجمة وإعدادات توبيك الحصص."""
     return InlineKeyboardMarkup([
-        [InlineKeyboardButton("🔄 تشغيل / إيقاف", callback_data="trans:toggle")],
-        [InlineKeyboardButton("📌 قفل على هذا التوبك", callback_data="trans:lockhere")],
-        [InlineKeyboardButton("🌐 تفعيل في كل التوبكات", callback_data="trans:setall")],
-        [InlineKeyboardButton("🔙 رجوع", callback_data="menu:back")],
+        [InlineKeyboardButton("🌐 إعدادات توبيك الترجمة", callback_data="settings:translate")],
+        [InlineKeyboardButton("📅 إعدادات توبيك إرسال الحصص", callback_data="settings:schedule")],
+        [InlineKeyboardButton("✨ إعدادات Google Gemini AI", callback_data="settings:gemini")],
+        [InlineKeyboardButton("🔙 رجوع للقائمة الرئيسية", callback_data="menu:back")],
+    ])
+
+
+def translate_settings_keyboard() -> InlineKeyboardMarkup:
+    """لوحة التحكم الخاصة بتوبيك الترجمة وحالة الخدمة."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔄 تشغيل / إيقاف الترجمة", callback_data="trans:toggle")],
+        [InlineKeyboardButton("📌 قفل الترجمة على هذا التوبك", callback_data="trans:lockhere")],
+        [InlineKeyboardButton("🌐 تفعيل في كل التوبكات (عام)", callback_data="trans:setall")],
+        [InlineKeyboardButton("✏️ إدخال رقم توبك الترجمة يدوياً", callback_data="trans:custom_id")],
+        [InlineKeyboardButton("🔙 رجوع للإعدادات", callback_data="menu:settings")],
+    ])
+
+
+def schedule_topic_settings_keyboard() -> InlineKeyboardMarkup:
+    """لوحة التحكم الخاصة بتوبيك إرسال الحصص والتنبيهات."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔔 تشغيل / إيقاف تنبيهات الحصص", callback_data="sched:toggle_alerts")],
+        [InlineKeyboardButton("📌 قفل إرسال الحصص على هذا التوبك", callback_data="sched:lockhere")],
+        [InlineKeyboardButton("✏️ إدخال رقم توبك الحصص يدوياً", callback_data="sched:custom_id")],
+        [InlineKeyboardButton("🚨 إرسال تنبيه تجريبي هنا", callback_data="sched:test_alert")],
+        [InlineKeyboardButton("🔙 رجوع للإعدادات", callback_data="menu:settings")],
+    ])
+
+
+def gemini_settings_keyboard() -> InlineKeyboardMarkup:
+    """لوحة التحكم الخاصة بمفتاح Google Gemini API."""
+    return InlineKeyboardMarkup([
+        [InlineKeyboardButton("🔑 إدخال / تحديث مفتاح Gemini API", callback_data="gemini:set_key")],
+        [InlineKeyboardButton("🧪 فحص وتجربة الترجمة بـ Gemini", callback_data="gemini:test")],
+        [InlineKeyboardButton("🗑️ حذف المفتاح (استخدام المحرك البديل)", callback_data="gemini:clear_key")],
+        [InlineKeyboardButton("🔙 رجوع للإعدادات", callback_data="menu:settings")],
     ])
 
 

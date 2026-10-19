@@ -11,7 +11,7 @@ from telegram.ext import ContextTypes
 from telegram.constants import ParseMode
 
 import database as db
-from config import ADMIN_IDS, ALL_ROOMS, DAY_MAP
+from config import ADMIN_IDS, ALL_ROOMS, DAY_MAP, GEMINI_API_KEY, TOPIC_ID, REMINDER_MINUTES_BEFORE
 from keyboards import (
     admin_main_menu,
     sessions_keyboard,
@@ -24,6 +24,10 @@ from keyboards import (
     day_schedule_keyboard,
     week_overview_keyboard,
     next_session_keyboard,
+    settings_menu_keyboard,
+    translate_settings_keyboard,
+    schedule_topic_settings_keyboard,
+    gemini_settings_keyboard,
 )
 from schedule_formatter import (
     format_day_schedule,
@@ -39,20 +43,87 @@ from pdf_parser import parse_schedule_pdf
 logger = logging.getLogger(__name__)
 
 
+def translate_with_gemini(text: str, api_key: str) -> str | None:
+    """ترجمة احترافية ودقيقة بواسطة Google Gemini AI."""
+    if not api_key or not text.strip():
+        return None
+
+    import urllib.request
+    import json
+
+    prompt = (
+        "You are an expert bilingual Arabic-English translator for university students. "
+        "Translate the following Arabic message into natural, modern English. "
+        "Preserve emojis, acronyms, and technical terms. "
+        "Output ONLY the English translation, without any notes, explanations, or quotes:\n\n"
+        f"{text}"
+    )
+
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": prompt}
+                ]
+            }
+        ],
+        "generationConfig": {
+            "temperature": 0.2,
+            "maxOutputTokens": 1000
+        }
+    }
+
+    models = ["gemini-1.5-flash", "gemini-2.0-flash"]
+    for model in models:
+        try:
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
+            req = urllib.request.Request(
+                url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={"Content-Type": "application/json"},
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=8) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                candidates = data.get("candidates", [])
+                if candidates:
+                    parts = candidates[0].get("content", {}).get("parts", [])
+                    if parts:
+                        res = parts[0].get("text", "").strip()
+                        if res:
+                            logger.info(f"✨ تمت الترجمة بنجاح عبر Gemini ({model})")
+                            return res
+        except Exception as e:
+            logger.debug(f"⚠️ [Gemini {model}] خطأ: {e}")
+            continue
+
+    return None
+
+
 def translate_ar_to_en(text: str) -> str:
-    """ترجمة دقيقة وسريعة من العربية إلى الإنجليزية عبر عدة محركات احتياطية."""
+    """ترجمة دقيقة وسريعة من العربية إلى الإنجليزية عبر Gemini AI ومحركات احتياطية."""
     if not text or not text.strip():
         return ""
 
     raw_text = text.strip()
 
+    # 1. المحرك الأول الذكي: Google Gemini AI
+    gemini_key = db.get_setting("gemini_api_key") or GEMINI_API_KEY
+    if gemini_key:
+        try:
+            res_gemini = translate_with_gemini(raw_text, gemini_key)
+            if res_gemini and res_gemini.strip() and res_gemini.strip().lower() != raw_text.strip().lower():
+                return res_gemini.strip()
+        except Exception as e:
+            logger.warning(f"⚠️ تعذر الترجمة بـ Gemini، جاري التبديل للمحرك الاحتياطي: {e}")
+
+    # 2. المحرك الاحتياطي الفوري: Google Translate GTX (بدون قيود ولا حظر)
     import urllib.request
     import urllib.parse
     import json
 
     encoded = urllib.parse.quote(raw_text)
 
-    # 1. المحرك الأساسي: Google Translate GTX (فوري، عالي الدقة، بدون أي قيود)
     try:
         url = f"https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=en&dt=t&q={encoded}"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
@@ -65,7 +136,7 @@ def translate_ar_to_en(text: str) -> str:
     except Exception as e:
         logger.debug(f"⚠️ [Google GTX Translate] فشل: {e}")
 
-    # 2. المحرك الثاني: Google Chrome Extension API
+    # 3. المحرك الثالث: Google Chrome Extension API
     try:
         url = f"https://clients5.google.com/translate_a/t?client=dict-chrome-ex&sl=auto&tl=en&q={encoded}"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"})
@@ -78,7 +149,7 @@ def translate_ar_to_en(text: str) -> str:
     except Exception as e:
         logger.debug(f"⚠️ [Google Chrome Extension API] فشل: {e}")
 
-    # 3. المحرك الثالث: MyMemory الاحتياطي
+    # 4. المحرك الرابع: MyMemory الاحتياطي
     try:
         url = f"https://api.mymemory.translated.net/get?q={encoded}&langpair=ar|en&de=iyeddevbot@gmail.com"
         req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})

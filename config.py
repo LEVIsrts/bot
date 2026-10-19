@@ -39,6 +39,9 @@ TIMEZONE: str = os.getenv("TIMEZONE", "Africa/Algiers")
 # ── دقائق التحذير قبل بداية الحصة ────────────────────────────────────────────
 REMINDER_MINUTES_BEFORE: int = int(os.getenv("REMINDER_MINUTES_BEFORE", "15"))
 
+# ── مفتاح Google Gemini API للترجمة ──────────────────────────────────────────
+GEMINI_API_KEY: str = os.getenv("GEMINI_API_KEY", "")
+
 # ── الغرف المتاحة ─────────────────────────────────────────────────────────────
 CC_ROOMS: list[str] = [f"CC {i}" for i in range(1, 7)]          # CC 1 … CC 6
 NORMAL_ROOMS: list[str] = [f"Room {i}" for i in range(1, 19)]   # Room 1 … Room 18
