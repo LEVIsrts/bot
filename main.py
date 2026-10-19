@@ -57,6 +57,7 @@ from handlers import (
     cmd_set_translate_mode,
     cmd_set_translate_user,
     cmd_bot_settings,
+    cmd_set_gemini,
     handle_pdf,
     handle_callback,
     handle_text,
@@ -202,6 +203,7 @@ def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("seed",           cmd_seed))
     app.add_handler(CommandHandler("addadmin",       cmd_add_admin))
     app.add_handler(CommandHandler("removeadmin",    cmd_remove_admin))
+    app.add_handler(CommandHandler("setgemini",      cmd_set_gemini))
 
     # ── معالج ملفات PDF ──────────────────────────────────────────
     app.add_handler(MessageHandler(filters.Document.PDF, handle_pdf))

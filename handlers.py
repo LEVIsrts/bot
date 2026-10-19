@@ -360,6 +360,113 @@ async def handle_pdf(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
 
 
 # ══════════════════════════════════════════════════════════════
+#  دوال بناء نصوص لوحات الإعدادات
+# ══════════════════════════════════════════════════════════════
+
+def _render_settings_hub_text() -> str:
+    """بناء نص لوحة الإعدادات الشاملة (Hub)."""
+    trans_topic = db.get_setting("translate_topic_id", "0")
+    trans_desc = f"الموضوع #{trans_topic}" if trans_topic and trans_topic != "0" else "كافة المواضيع (عام) 🌐"
+    is_trans_on = db.get_setting("translate_enabled", "1") == "1"
+    trans_status = "شغالة 🟢" if is_trans_on else "متوقفة ⏸️"
+
+    from scheduler import get_target_chat_and_topic
+    target_chat, sched_topic = get_target_chat_and_topic()
+    sched_desc = f"الموضوع #{sched_topic}" if sched_topic else "المحادثة العامة (بدون توبيك)"
+    is_alerts_on = db.get_setting("alerts_enabled", "1") == "1"
+    alerts_status = "مفعّلة 🟢" if is_alerts_on else "متوقفة ⏸️"
+
+    gemini_key = db.get_setting("gemini_api_key") or GEMINI_API_KEY
+    if gemini_key:
+        masked = gemini_key[:6] + "..." + gemini_key[-4:] if len(gemini_key) > 10 else "متوفر ✅"
+        gemini_status = f"مربوط بنجاح 🟢 (<code>{masked}</code>)"
+    else:
+        gemini_status = "غير مضبوط (يستخدم محرك Google المباشر مجاناً ⚡)"
+
+    return (
+        "⚙️ <b>مركز الإعدادات الشامل للبوت</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n\n"
+        "🌐 <b>1. توبيك الترجمة الفورية:</b>\n"
+        f"• الوجهة: <b>{trans_desc}</b>\n"
+        f"• الحالة: <b>{trans_status}</b>\n\n"
+        "📅 <b>2. توبيك إرسال جداول الحصص:</b>\n"
+        f"• الوجهة: <b>{sched_desc}</b>\n"
+        f"• التنبيهات: <b>{alerts_status}</b>\n\n"
+        "✨ <b>3. محرك الترجمة الذكي (Gemini AI):</b>\n"
+        f"• الحالة: {gemini_status}\n\n"
+        "👇 <i>اختر القسم الذي تريد ضبطه من الأزرار أدناه:</i>"
+    )
+
+
+def _render_translate_settings_text() -> str:
+    """بناء نص لوحة إعدادات توبيك الترجمة."""
+    trans_topic = db.get_setting("translate_topic_id", "0")
+    topic_desc = f"الموضوع #{trans_topic}" if trans_topic and trans_topic != "0" else "كافة المواضيع (عام) 🌐"
+    is_on = db.get_setting("translate_enabled", "1") == "1"
+    status_label = "شغالة 🟢" if is_on else "متوقفة ⏸️"
+
+    gemini_key = db.get_setting("gemini_api_key") or GEMINI_API_KEY
+    engine = "Google Gemini AI ✨" if gemini_key else "Google GTX (مباشر ومجاني) ⚡"
+
+    return (
+        "🌐 <b>إعدادات توبيك الترجمة الفورية</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"⚡ <b>حالة الخدمة:</b> <b>{status_label}</b>\n"
+        f"📌 <b>توبيك الترجمة الحالي:</b> <code>{topic_desc}</code>\n"
+        f"🤖 <b>المحرك الفعّال:</b> <b>{engine}</b>\n\n"
+        "💡 <b>الخيارات المتاحة:</b>\n"
+        "• <b>تشغيل / إيقاف:</b> تفعيل أو تعطيل الترجمة.\n"
+        "• <b>قفل على هذا التوبك:</b> الترجمة تعمل فقط في التوبك الحالي.\n"
+        "• <b>تفعيل في كل التوبكات:</b> ترجمة الرسائل في كافة توبكات المجموعة.\n"
+        "• <b>إدخال رقم يدوي:</b> تحديد رقم Topic ID يدوياً."
+    )
+
+
+def _render_schedule_settings_text() -> str:
+    """بناء نص لوحة إعدادات توبيك إرسال الحصص."""
+    from scheduler import get_target_chat_and_topic
+    target_chat, sched_topic = get_target_chat_and_topic()
+    sched_desc = f"الموضوع #{sched_topic}" if sched_topic else "المحادثة العامة (بدون توبيك)"
+    is_alerts_on = db.get_setting("alerts_enabled", "1") == "1"
+    alerts_status = "مفعّلة 🟢" if is_alerts_on else "متوقفة ⏸️"
+
+    return (
+        "📅 <b>إعدادات توبيك إرسال الحصص والتنبيهات</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔔 <b>حالة التنبيهات التلقائية:</b> <b>{alerts_status}</b>\n"
+        f"📌 <b>وجهة التنبيهات (Topic ID):</b> <code>{sched_desc}</code>\n"
+        f"💬 <b>معرّف المحادثة (Chat ID):</b> <code>{target_chat}</code>\n"
+        f"⏱️ <b>وقت التنبيه:</b> قبل بداية كل حصة بـ {REMINDER_MINUTES_BEFORE} دقيقة\n\n"
+        "💡 <b>الخيارات المتاحة:</b>\n"
+        "• <b>تشغيل / إيقاف:</b> تفعيل أو إيقاف إرسال تنبيهات الحصص.\n"
+        "• <b>قفل على هذا التوبك:</b> إرسال التنبيهات داخل التوبك الحالي حصراً.\n"
+        "• <b>إدخال رقم يدوي:</b> كتابة رقم الموضوع مباشرة.\n"
+        "• <b>تنبيه تجريبي:</b> إرسال تنبيه فوري للتأكد من وصوله."
+    )
+
+
+def _render_gemini_settings_text() -> str:
+    """بناء نص لوحة إعدادات Gemini API."""
+    gemini_key = db.get_setting("gemini_api_key") or GEMINI_API_KEY
+    if gemini_key:
+        masked = gemini_key[:6] + "..." + gemini_key[-4:] if len(gemini_key) > 10 else "متوفر ✅"
+        status = f"مفعّل ومربوط بنجاح 🟢 (<code>{masked}</code>)"
+    else:
+        status = "غير مضبوط ⚠️ (البوت يعمل عبر محرك Google الاحتياطي المجاني)"
+
+    return (
+        "✨ <b>إعدادات محرك الترجمة الذكي (Google Gemini AI)</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━\n"
+        f"🔑 <b>حالة المفتاح:</b> {status}\n"
+        "🧠 <b>الموديلات المدعومة:</b> gemini-1.5-flash / gemini-2.0-flash\n\n"
+        "💡 <b>المزايا:</b>\n"
+        "• ترجمة سياقية ذكية للمصطلحات الأكاديمية والجامعية.\n"
+        "• الحفاظ على الإيموجيات وتنسيق الرسائل بدقة تامة.\n"
+        "• في حال عدم توفر المفتاح، يستمر البوت في العمل مجاناً وبدون توقف."
+    )
+
+
+# ══════════════════════════════════════════════════════════════
 #  معالج أزرار لوحة التحكم (Callback Query)
 # ══════════════════════════════════════════════════════════════
 
@@ -494,71 +601,210 @@ async def handle_callback(update: Update, context: ContextTypes.DEFAULT_TYPE) ->
     elif data == "menu:admins":
         await _handle_admins_menu(query, context)
 
-    elif data == "menu:settings":
-        from keyboards import settings_menu_keyboard
-        trans_topic = db.get_setting("translate_topic_id", "0")
-        topic_desc = f"الموضوع رقم {trans_topic}" if trans_topic and trans_topic != "0" else "كافة المواضيع (عام)"
-        is_on = db.get_setting("translate_enabled", "1") == "1"
-        status_label = "شغالة 🟢" if is_on else "متوقفة ⏸️"
-
-        text = (
-            "⚙️ <b>إعدادات الترجمة</b>\n\n"
-            f"📌 <b>موضوع الترجمة:</b> <code>{topic_desc}</code>\n"
-            f"⚡ <b>حالة الخدمة:</b> <b>{status_label}</b>"
+    # ── مركز الإعدادات الشامل للبوت ───────────────────────────────
+    elif data in ("menu:settings", "settings:hub"):
+        await query.edit_message_text(
+            _render_settings_hub_text(),
+            parse_mode=ParseMode.HTML,
+            reply_markup=settings_menu_keyboard(),
         )
-        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=settings_menu_keyboard())
+
+    # ── 1. القائمة الفرعية: إعدادات توبيك الترجمة ──────────────────
+    elif data == "settings:translate":
+        await query.edit_message_text(
+            _render_translate_settings_text(),
+            parse_mode=ParseMode.HTML,
+            reply_markup=translate_settings_keyboard(),
+        )
 
     elif data == "trans:toggle":
-        from keyboards import settings_menu_keyboard
         curr = db.get_setting("translate_enabled", "1")
         new_val = "0" if curr == "1" else "1"
         db.set_setting("translate_enabled", new_val)
         status_txt = "🟢 تم تفعيل الترجمة!" if new_val == "1" else "⏸️ تم إيقاف الترجمة!"
-        await query.answer(status_txt, show_alert=False)
-
-        trans_topic = db.get_setting("translate_topic_id", "0")
-        topic_desc = f"الموضوع رقم {trans_topic}" if trans_topic and trans_topic != "0" else "كافة المواضيع (عام)"
-        status_label = "شغالة 🟢" if new_val == "1" else "متوقفة ⏸️"
-        text = (
-            "⚙️ <b>إعدادات الترجمة</b>\n\n"
-            f"📌 <b>موضوع الترجمة:</b> <code>{topic_desc}</code>\n"
-            f"⚡ <b>حالة الخدمة:</b> <b>{status_label}</b>"
+        try:
+            await query.answer(status_txt)
+        except Exception:
+            pass
+        await query.edit_message_text(
+            _render_translate_settings_text(),
+            parse_mode=ParseMode.HTML,
+            reply_markup=translate_settings_keyboard(),
         )
-        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=settings_menu_keyboard())
 
     elif data == "trans:lockhere":
-        from keyboards import settings_menu_keyboard
-        target_thread = query.message.message_thread_id
+        target_thread = getattr(query.message, "message_thread_id", None)
         if target_thread:
             db.set_setting("translate_topic_id", str(target_thread))
-            await query.answer(f"✅ تم قفل الترجمة على هذا الموضوع (#{target_thread})!", show_alert=True)
-            topic_desc = f"الموضوع رقم {target_thread}"
+            try:
+                await query.answer(f"✅ تم قفل الترجمة على الموضوع #{target_thread}!", show_alert=True)
+            except Exception:
+                pass
         else:
             db.set_setting("translate_topic_id", "0")
-            await query.answer("🌐 تم تفعيل الترجمة في كل المواضيع (عام)!", show_alert=True)
-            topic_desc = "كافة المواضيع (عام)"
-
-        is_on = db.get_setting("translate_enabled", "1") == "1"
-        status_label = "شغالة 🟢" if is_on else "متوقفة ⏸️"
-        text = (
-            "⚙️ <b>إعدادات الترجمة</b>\n\n"
-            f"📌 <b>موضوع الترجمة:</b> <code>{topic_desc}</code>\n"
-            f"⚡ <b>حالة الخدمة:</b> <b>{status_label}</b>"
+            try:
+                await query.answer("🌐 تم تفعيل الترجمة في كل المواضيع (عام)!", show_alert=True)
+            except Exception:
+                pass
+        await query.edit_message_text(
+            _render_translate_settings_text(),
+            parse_mode=ParseMode.HTML,
+            reply_markup=translate_settings_keyboard(),
         )
-        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=settings_menu_keyboard())
 
     elif data == "trans:setall":
-        from keyboards import settings_menu_keyboard
         db.set_setting("translate_topic_id", "0")
-        await query.answer("🌐 تم تفعيل الترجمة في كل المواضيع!", show_alert=True)
-        is_on = db.get_setting("translate_enabled", "1") == "1"
-        status_label = "شغالة 🟢" if is_on else "متوقفة ⏸️"
-        text = (
-            "⚙️ <b>إعدادات الترجمة</b>\n\n"
-            f"📌 <b>موضوع الترجمة:</b> <code>كافة المواضيع (عام)</code>\n"
-            f"⚡ <b>حالة الخدمة:</b> <b>{status_label}</b>"
+        try:
+            await query.answer("🌐 تم تفعيل الترجمة في كافة التوبكات والمواضيع!", show_alert=True)
+        except Exception:
+            pass
+        await query.edit_message_text(
+            _render_translate_settings_text(),
+            parse_mode=ParseMode.HTML,
+            reply_markup=translate_settings_keyboard(),
         )
-        await query.edit_message_text(text, parse_mode=ParseMode.HTML, reply_markup=settings_menu_keyboard())
+
+    elif data == "trans:custom_id":
+        context.user_data["waiting_for_translate_topic"] = True
+        try:
+            await query.answer("✏️ أرسل رقم التوبك في الشات الآن")
+        except Exception:
+            pass
+        await query.message.reply_text(
+            "✏️ <b>إدخال رقم توبيك الترجمة يدوياً:</b>\n"
+            "أرسل الآن رقم الـ Topic ID المطلوب (مثال: <code>3</code>),\n"
+            "أو أرسل <code>0</code> لتفعيل الترجمة في كافة التوبكات.",
+            parse_mode=ParseMode.HTML,
+        )
+
+    # ── 2. القائمة الفرعية: إعدادات توبيك إرسال الحصص ───────────────
+    elif data == "settings:schedule":
+        await query.edit_message_text(
+            _render_schedule_settings_text(),
+            parse_mode=ParseMode.HTML,
+            reply_markup=schedule_topic_settings_keyboard(),
+        )
+
+    elif data == "sched:toggle_alerts":
+        curr = db.get_setting("alerts_enabled", "1")
+        new_val = "0" if curr == "1" else "1"
+        db.set_setting("alerts_enabled", new_val)
+        status_txt = "🟢 تم تفعيل تنبيهات الحصص!" if new_val == "1" else "⏸️ تم إيقاف تنبيهات الحصص!"
+        try:
+            await query.answer(status_txt)
+        except Exception:
+            pass
+        await query.edit_message_text(
+            _render_schedule_settings_text(),
+            parse_mode=ParseMode.HTML,
+            reply_markup=schedule_topic_settings_keyboard(),
+        )
+
+    elif data == "sched:lockhere":
+        target_thread = getattr(query.message, "message_thread_id", None)
+        target_chat = query.message.chat_id
+        db.set_setting("group_chat_id", str(target_chat))
+        if target_thread:
+            db.set_setting("topic_id", str(target_thread))
+            try:
+                await query.answer(f"✅ تم قفل إرسال الحصص على الموضوع #{target_thread}!", show_alert=True)
+            except Exception:
+                pass
+        else:
+            db.set_setting("topic_id", "0")
+            try:
+                await query.answer("✅ تم قفل إرسال الحصص على هذه المجموعة (بدون توبيك)!", show_alert=True)
+            except Exception:
+                pass
+        await query.edit_message_text(
+            _render_schedule_settings_text(),
+            parse_mode=ParseMode.HTML,
+            reply_markup=schedule_topic_settings_keyboard(),
+        )
+
+    elif data == "sched:custom_id":
+        context.user_data["waiting_for_schedule_topic"] = True
+        try:
+            await query.answer("✏️ أرسل رقم التوبك في الشات الآن")
+        except Exception:
+            pass
+        await query.message.reply_text(
+            "✏️ <b>إدخال رقم توبيك الحصص والتنبيهات:</b>\n"
+            "أرسل الآن رقم الـ Topic ID المطلوب لإرسال تنبيهات الحصص فيه (مثال: <code>4</code>),\n"
+            "أو أرسل <code>0</code> للإرسال في المحادثة العامة بدون توبيك.",
+            parse_mode=ParseMode.HTML,
+        )
+
+    elif data == "sched:test_alert":
+        sessions = db.get_all_sessions(include_cancelled=False)
+        if not sessions:
+            try:
+                await query.answer("❌ لا توجد حصص نشطة لإرسال تنبيه تجريبي.", show_alert=True)
+            except Exception:
+                pass
+        else:
+            from scheduler import send_alert
+            try:
+                await send_alert(context.bot, sessions[0]["id"])
+                await query.answer("🚀 تم إرسال تنبيه تجريبي بنجاح إلى التوبيك المحدد!", show_alert=True)
+            except Exception as e:
+                await query.answer(f"❌ تعذر الإرسال: {e}", show_alert=True)
+
+    # ── 3. القائمة الفرعية: إعدادات Gemini AI ───────────────────────
+    elif data == "settings:gemini":
+        await query.edit_message_text(
+            _render_gemini_settings_text(),
+            parse_mode=ParseMode.HTML,
+            reply_markup=gemini_settings_keyboard(),
+        )
+
+    elif data == "gemini:set_key":
+        context.user_data["waiting_for_gemini_key"] = True
+        try:
+            await query.answer("🔑 أرسل المفتاح في الشات الآن")
+        except Exception:
+            pass
+        await query.message.reply_text(
+            "🔑 <b>إدخال مفتاح Google Gemini API:</b>\n\n"
+            "أرسل مفتاح الـ API الخاص بك الآن (يبدأ عادةً بـ <code>AIzaSy...</code>).\n"
+            "🔒 <i>سيتم حذف رسالتك تلقائياً بعد الحفظ للحفاظ على خصوصيتك وأمان المفتاح.</i>\n\n"
+            "💡 للحصول على مفتاح مجاني: قم بزيارة <a href='https://aistudio.google.com/'>Google AI Studio</a>.",
+            parse_mode=ParseMode.HTML,
+            disable_web_page_preview=True,
+        )
+
+    elif data == "gemini:clear_key":
+        db.set_setting("gemini_api_key", "")
+        try:
+            await query.answer("🗑️ تم حذف مفتاح Gemini! سيعمل المحرك المجاني الاحتياطي.", show_alert=True)
+        except Exception:
+            pass
+        await query.edit_message_text(
+            _render_gemini_settings_text(),
+            parse_mode=ParseMode.HTML,
+            reply_markup=gemini_settings_keyboard(),
+        )
+
+    elif data == "gemini:test":
+        gemini_key = db.get_setting("gemini_api_key") or GEMINI_API_KEY
+        if not gemini_key:
+            try:
+                await query.answer("⚠️ لا يوجد مفتاح Gemini محفوظ لتجربته. يرجى إدخال مفتاح أولاً.", show_alert=True)
+            except Exception:
+                pass
+        else:
+            test_phrase = "مرحباً بكم، الجدول الدراسي محدث وجاهز."
+            res = translate_with_gemini(test_phrase, gemini_key)
+            if res:
+                try:
+                    await query.answer(f"✅ فحص ناجح بـ Gemini!\n«{res}»", show_alert=True)
+                except Exception:
+                    pass
+            else:
+                try:
+                    await query.answer("❌ تعذر الاتصال بـ Gemini API. تأكد من صلاحية المفتاح والاتصال.", show_alert=True)
+                except Exception:
+                    pass
 
     elif data == "menu:upload":
         await query.edit_message_text(
@@ -730,6 +976,58 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     # تسجيل المستخدم في قاعدة البيانات لتحديث الاسم والمعرّف تلقائياً
     if user and not user.is_bot:
         db.upsert_member(user.id, user.username, user.full_name or user.first_name)
+
+    # ── انتظار إدخال رقم توبيك الترجمة ─────────────────────────────
+    if user_data.get("waiting_for_translate_topic"):
+        user_data.pop("waiting_for_translate_topic", None)
+        try:
+            tid = int(text)
+            db.set_setting("translate_topic_id", str(tid))
+            desc = f"الموضوع رقم #{tid}" if tid != 0 else "كافة المواضيع (عام) 🌐"
+            await msg.reply_text(f"✅ <b>تم ضبط توبيك الترجمة بنجاح!</b>\nالوجهة الحالية: <b>{desc}</b>", parse_mode=ParseMode.HTML)
+        except ValueError:
+            await msg.reply_text("❌ يرجى إرسال رقم صحيح للتوبك (مثال: 3، أو 0 للعام).")
+        return
+
+    # ── انتظار إدخال رقم توبيك الحصص ────────────────────────────────
+    if user_data.get("waiting_for_schedule_topic"):
+        user_data.pop("waiting_for_schedule_topic", None)
+        try:
+            tid = int(text)
+            db.set_setting("topic_id", str(tid))
+            desc = f"الموضوع رقم #{tid}" if tid != 0 else "المحادثة العامة (بدون توبيك)"
+            await msg.reply_text(f"✅ <b>تم ضبط توبيك إرسال الحصص والتنبيهات بنجاح!</b>\nالوجهة الحالية: <b>{desc}</b>", parse_mode=ParseMode.HTML)
+        except ValueError:
+            await msg.reply_text("❌ يرجى إرسال رقم صحيح للتوبك (مثال: 4، أو 0 للعام).")
+        return
+
+    # ── انتظار إدخال مفتاح Gemini API ───────────────────────────────
+    if user_data.get("waiting_for_gemini_key"):
+        user_data.pop("waiting_for_gemini_key", None)
+        new_key = text.strip()
+        try:
+            await msg.delete()
+        except Exception:
+            pass
+
+        test_res = translate_with_gemini("مرحباً بكم جميعاً", new_key)
+        if test_res:
+            db.set_setting("gemini_api_key", new_key)
+            await chat.send_message(
+                f"✅ <b>تم حفظ وتفعيل مفتاح Google Gemini AI بنجاح!</b>\n\n"
+                f"🧪 <b>نتيجة الاختبار التجريبي:</b>\n"
+                f"«مرحباً بكم جميعاً» ➡️ «<code>{test_res}</code>»\n\n"
+                f"✨ ستتم الآن جميع الترجمات في البوت عبر الذكاء الاصطناعي بدقة فائقة.",
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            db.set_setting("gemini_api_key", new_key)
+            await chat.send_message(
+                "⚠️ <b>تم حفظ المفتاح بنجاح!</b>\n"
+                "لكن تعذر استلام استجابة فورية أثناء الاختبار. سيعمل البوت بـ Gemini مع التبديل التلقائي للمحرك الاحتياطي عند الحاجة.",
+                parse_mode=ParseMode.HTML,
+            )
+        return
 
     # ── 1. تعديل الوقت ───────────────────────────────────────────
     if "edit_time_session" in user_data:
@@ -1127,32 +1425,57 @@ async def cmd_set_translate_user(update: Update, context: ContextTypes.DEFAULT_T
 
 
 async def cmd_bot_settings(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    """عرض إعدادات الترجمة والمواضيع بشكل مبسط وسريع."""
+    """عرض مركز إعدادات الترجمة والحصص التفاعلي الشامل."""
     if not await _check_admin(update):
         return
 
-    trans_topic = db.get_setting("translate_topic_id", "0")
-    topic_desc = f"الموضوع رقم {trans_topic}" if trans_topic and trans_topic != "0" else "كافة المواضيع (عام)"
-    is_on = db.get_setting("translate_enabled", "1") == "1"
-    status_label = "شغالة 🟢" if is_on else "متوقفة ⏸️"
-
-    schedule_topic = db.get_setting("topic_id", "4")
-    schedule_status = "مفعّلة 🟢" if db.get_setting("alerts_enabled", "1") == "1" else "معطلة ⏸️"
-
-    text = (
-        "⚙️ <b>لوحة الإعدادات المبسطة</b>\n"
-        "━━━━━━━━━━━━━━━━━━━━\n\n"
-        "🌐 <b>إعدادات الترجمة:</b>\n"
-        f"• موضوع الترجمة: <b>{topic_desc}</b>\n"
-        f"• حالة الخدمة: <b>{status_label}</b>\n"
-        "  └ التبديل: <code>/translatemode on|off</code>\n"
-        "  └ تغيير التوبك: <code>/translatetopic [رقم]</code>\n\n"
-        "📅 <b>تنبيهات الجدول الدراسي:</b>\n"
-        f"• موضوع التنبيهات: <b>الموضوع رقم {schedule_topic}</b>\n"
-        f"• حالة التنبيهات: <b>{schedule_status}</b>\n"
-        "  └ تغيير التوبك: <code>/settopic [رقم]</code>\n"
+    text = _render_settings_hub_text()
+    await update.effective_message.reply_text(
+        text,
+        parse_mode=ParseMode.HTML,
+        reply_markup=settings_menu_keyboard(),
     )
-    await update.effective_message.reply_text(text, parse_mode=ParseMode.HTML)
+
+
+async def cmd_set_gemini(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """إدخال أو فحص مفتاح Gemini API للمشرف: /setgemini [api_key]"""
+    if not await _check_admin(update):
+        return
+    msg = update.effective_message
+    if not context.args:
+        gemini_key = db.get_setting("gemini_api_key") or GEMINI_API_KEY
+        if gemini_key:
+            masked = gemini_key[:6] + "..." + gemini_key[-4:] if len(gemini_key) > 10 else "متوفر ✅"
+            await msg.reply_text(
+                f"🔑 <b>مفتاح Gemini API الحالي:</b> <code>{masked}</code>\n\n"
+                f"لتحديثه أرسل: <code>/setgemini YOUR_API_KEY</code>\n"
+                f"أو استخدم لوحة الإعدادات التفاعلية: /settings",
+                parse_mode=ParseMode.HTML,
+            )
+        else:
+            await msg.reply_text(
+                "ℹ️ <b>لم يتم ضبط مفتاح Gemini API بعد.</b>\n\n"
+                "لتحديده أرسل: <code>/setgemini YOUR_API_KEY</code>\n"
+                "أو ادخل على لوحة الإعدادات: /settings",
+                parse_mode=ParseMode.HTML,
+            )
+        return
+
+    new_key = context.args[0].strip()
+    test_res = translate_with_gemini("مرحباً بكم", new_key)
+    if test_res:
+        db.set_setting("gemini_api_key", new_key)
+        await msg.reply_text(
+            f"✅ <b>تم تفعيل مفتاح Google Gemini بنجاح!</b>\n"
+            f"🧪 نتيجة الاختبار: «<code>{test_res}</code>»",
+            parse_mode=ParseMode.HTML,
+        )
+    else:
+        db.set_setting("gemini_api_key", new_key)
+        await msg.reply_text(
+            "⚠️ تم حفظ المفتاح في قاعدة البيانات. (تعذر استلام نتيجة الاختبار فوراً، تأكد من صحة المفتاح)",
+            parse_mode=ParseMode.HTML,
+        )
 
 
 async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -1162,8 +1485,8 @@ async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     target_text = ""
-    if msg.reply_to_message and msg.reply_to_message.text:
-        target_text = msg.reply_to_message.text.strip()
+    if msg.reply_to_message:
+        target_text = (msg.reply_to_message.text or msg.reply_to_message.caption or "").strip()
     elif context.args:
         target_text = " ".join(context.args).strip()
 
@@ -1171,7 +1494,7 @@ async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         await msg.reply_text(
             "ℹ️ <b>طريقة الترجمة الفورية:</b>\n"
             "• اكتب <code>/tr مرحباً</code> أو <code>/trad أي نص</code>\n"
-            "• أو قم بالرد (Reply) على أي رسالة واكتب <code>/tr</code>",
+            "• أو قم بالرد (Reply) على أي رسالة واكتب <code>/tr</code> أو <code>/trad</code>",
             parse_mode=ParseMode.HTML,
         )
         return
@@ -1182,6 +1505,7 @@ async def cmd_translate(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         return
 
     await msg.reply_text(f"🇬🇧 {translated}")
+
 
 
 
